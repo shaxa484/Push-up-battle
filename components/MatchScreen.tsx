@@ -1,25 +1,181 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
 export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any) {
-  const [phase, setPhase] = useState<"countdown" | "playing" | "paused">("countdown");
+  // App Phases: loading -> calibrating -> countdown -> playing
+  const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing">("loading");
   const [countdown, setCountdown] = useState(3);
   const [timeLeft, setTimeLeft] = useState(duration);
   
-  // Mock Reps State
   const [playerAReps, setPlayerAReps] = useState(0);
   const [playerBReps, setPlayerBReps] = useState(0);
+  const [badForm, setBadForm] = useState(false); // Triggers UI warning
 
-  // Mock Opponent Logic (Auto-increments reps)
+  // Refs for MediaPipe and Camera
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const landmarkerRef = useRef<PoseLandmarker | null>(null);
+  const rafRef = useRef<number | null>(null);
+  
+  // --- ANTI-CHEAT REFS ---
+  const isDownRef = useRef(false);
+  const baselineYDistanceRef = useRef(0);
+  const baselineHipYRef = useRef(0);
+  const baselineKneeYRef = useRef(0);
+  const calibrationStartTimeRef = useRef(0);
+
+  // 1. Initialize MediaPipe Pose Landmarker
+  useEffect(() => {
+    async function setupLandmarker() {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+      const landmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numPoses: 1
+      });
+      landmarkerRef.current = landmarker;
+      
+      if (navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadeddata = () => {
+            videoRef.current?.play();
+            setPhase("calibrating"); // Go to calibration first
+          };
+        }
+      }
+    }
+    setupLandmarker();
+    return () => {
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  // 2. Calibration Timer (2 Seconds)
+  useEffect(() => {
+    if (phase === "calibrating") {
+      calibrationStartTimeRef.current = performance.now();
+      const timer = setTimeout(() => {
+        setPhase("countdown");
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [phase]);
+
+  // 3. The AI Detection & Anti-Cheat Loop
+  useEffect(() => {
+    if (phase !== "calibrating" && phase !== "playing" && phase !== "countdown") return;
+    
+    const detectPose = () => {
+      if (!landmarkerRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+        rafRef.current = requestAnimationFrame(detectPose);
+        return;
+      }
+
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const results = landmarkerRef.current.detectForVideo(video, performance.now());
+      
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const drawingUtils = new DrawingUtils(ctx);
+        
+        if (results.landmarks.length > 0) {
+          const lm = results.landmarks[0];
+          
+          // Draw skeleton
+          drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 4 });
+          drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 4 });
+
+          // --- CORE CALCULATIONS ---
+          // Ensure landmarks are visible
+          const vis = (idx: number) => lm[idx].visibility && lm[idx].visibility > 0.5;
+          if (vis(11) && vis(12) && vis(15) && vis(16) && vis(23) && vis(24) && vis(25) && vis(26)) {
+            
+            const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
+            const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
+            const avg_hip_y = (lm[23].y + lm[24].y) / 2;
+            const avg_knee_y = (lm[25].y + lm[26].y) / 2;
+
+            const current_y_distance = avg_wrist_y - avg_shoulder_y;
+
+            // --- PHASE 1: CALIBRATION ---
+            if (phase === "calibrating") {
+              // Continuously update baselines so the final frame is the saved baseline
+              baselineYDistanceRef.current = current_y_distance;
+              baselineHipYRef.current = avg_hip_y;
+              baselineKneeYRef.current = avg_knee_y;
+            } 
+            // --- PHASE 2: PLAYING STATE MACHINE ---
+            else if (phase === "playing") {
+              const baseline_y_distance = baselineYDistanceRef.current;
+              
+              if (baseline_y_distance > 0) { // Prevent division by zero
+                const down_threshold = baseline_y_distance * 0.50;
+                const up_threshold = baseline_y_distance * 0.85;
+                const anti_cheat_buffer = baseline_y_distance * 0.15;
+
+                // GOING DOWN
+                if (current_y_distance < down_threshold && !isDownRef.current) {
+                  isDownRef.current = true;
+                } 
+                // COMING UP
+                else if (current_y_distance > up_threshold && isDownRef.current) {
+                  
+                  // CHEAT CHECK 1 & 2
+                  const isSagging = avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
+                  const isKneesDropped = avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
+
+                  if (isSagging || isKneesDropped) {
+                    // FAIL CHECK
+                    isDownRef.current = false;
+                    setBadForm(true);
+                    setTimeout(() => setBadForm(false), 2000); // Hide warning after 2s
+                  } else {
+                    // SUCCESSFUL REP
+                    isDownRef.current = false;
+                    setPlayerAReps(prev => prev + 1);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      rafRef.current = requestAnimationFrame(detectPose);
+    };
+
+    rafRef.current = requestAnimationFrame(detectPose);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [phase]);
+
+  // 4. Mock Opponent Logic
   useEffect(() => {
     if (phase !== "playing") return;
     const interval = setInterval(() => {
       setPlayerBReps(prev => prev + 1);
-    }, 2000); // Opponent does a rep every 2 seconds
+    }, 2500);
     return () => clearInterval(interval);
   }, [phase]);
 
-  // Timer Logic
+  // 5. Countdown & Timer Logic
   useEffect(() => {
     if (phase === "countdown") {
       if (countdown > 0) {
@@ -41,11 +197,9 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
   }, [phase, timeLeft, playerAReps, playerBReps, onMatchEnd]);
 
   // Tug of War Math
-  // flex-grow logic requires at least a base value to prevent 0 or negative
   const totalReps = playerAReps + playerBReps;
   const growA = totalReps === 0 ? 1 : playerAReps;
   const growB = totalReps === 0 ? 1 : playerBReps;
-
   const formatTime = (s: number) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2, '0')}`;
 
   return (
@@ -62,8 +216,15 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
             {formatTime(timeLeft)}
           </div>
         </div>
-        <div className="w-[60px]"></div> {/* Spacer for centering */}
+        <div className="w-[60px]"></div>
       </div>
+
+      {/* Bad Form Warning */}
+      {badForm && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white font-bold px-6 py-3 rounded-lg shadow-lg animate-pulse">
+          BAD FORM! KEEP HIPS & KNEES UP
+        </div>
+      )}
 
       {/* Tug of War Container */}
       <div className="flex flex-col h-full w-full">
@@ -79,54 +240,56 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
               {playerBReps}
             </div>
           </div>
-          {/* Camera Placeholder for Opponent (if remote video was shown, but here just color overlay) */}
         </div>
 
         {/* Player A (User - Blue - Bottom) */}
         <div 
-          className="relative bg-blue-primary/20 border-t-4 border-blue-primary flex items-center justify-center transition-all duration-500 ease-out"
+          className="relative bg-blue-primary/10 border-t-4 border-blue-primary flex items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growA, flexBasis: 0 }}
         >
-          {/* Camera Feed Placeholder */}
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-             {/* In production, <video ref={videoRef} className="w-full h-full object-cover opacity-40" /> goes here */}
-             <div className="text-slate-600 text-sm font-bold border-2 border-dashed border-slate-700 p-4 rounded-lg">
-               CAMERA FEED (MEDIAPIPE ZONE)
-             </div>
-          </div>
+          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-40" playsInline />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
 
-          <div className="text-center z-10 mt-10">
+          <div className="text-center z-10 mt-10 pointer-events-none">
             <div className="text-blue-light text-8xl font-display font-extrabold drop-shadow-lg">
               {playerAReps}
             </div>
             <div className="text-blue-light text-xl font-bold mt-2">{user.name.toUpperCase()}</div>
           </div>
         </div>
-
       </div>
 
-      {/* MOCK CONTROLS - For UI Testing Only */}
-      {phase === "playing" && (
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 flex gap-4">
-          <button 
-            onClick={() => setPlayerAReps(r => r + 1)}
-            className="bg-blue-primary hover:bg-blue-light text-white font-bold py-4 px-8 rounded-lg shadow-lg shadow-blue-primary/50 transition-transform active:scale-95"
-          >
-            DO PUSHUP (YOU)
-          </button>
-        </div>
-      )}
-
-      {/* Countdown Overlay */}
-      {phase === "countdown" && (
+      {/* Loading / Calibrating / Countdown Overlays */}
+      {phase !== "playing" && (
         <div className="absolute inset-0 bg-background/90 z-40 flex flex-col items-center justify-center backdrop-blur-sm">
-          <h2 className="text-2xl text-slate-400 font-bold mb-4 uppercase tracking-widest">Get Ready</h2>
-          <div className="text-9xl font-display font-extrabold text-green-light animate-ping-once">
-            {countdown === 0 ? "GO!" : countdown}
-          </div>
+          {phase === "loading" && (
+            <div className="text-3xl font-display font-bold text-slate-400 animate-pulse">
+              INITIALIZING AI TRACKER...
+            </div>
+          )}
+          
+          {phase === "calibrating" && (
+            <div className="text-center">
+              <h2 className="text-2xl text-blue-light font-bold mb-4 uppercase tracking-widest animate-pulse">
+                CALIBRATING BASELINE
+              </h2>
+              <p className="text-slate-300 text-lg">Hold a strict UP plank position</p>
+              <div className="mt-4 w-64 h-2 bg-surface rounded-full overflow-hidden">
+                <div className="h-full bg-blue-primary animate-[progress_2s_linear_infinite]" style={{animationName: 'progress'}}></div>
+              </div>
+            </div>
+          )}
+          
+          {phase === "countdown" && (
+            <>
+              <h2 className="text-2xl text-slate-400 font-bold mb-4 uppercase tracking-widest">Get Ready</h2>
+              <div className="text-9xl font-display font-extrabold text-green-light animate-ping-once">
+                {countdown === 0 ? "GO!" : countdown}
+              </div>
+            </>
+          )}
         </div>
       )}
-
     </div>
   );
 }
