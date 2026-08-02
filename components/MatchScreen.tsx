@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef } from "react";
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
-// 1. Define strict interfaces instead of using 'any'
 interface User {
   name: string;
   elo: number;
@@ -16,7 +15,6 @@ interface MatchScreenProps {
 }
 
 export default function MatchScreen({ user, duration, onMatchEnd, onExit }: MatchScreenProps) {
-  // App Phases: loading -> calibrating -> countdown -> playing
   const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing">("loading");
   const [countdown, setCountdown] = useState<number>(3);
   const [timeLeft, setTimeLeft] = useState<number>(duration);
@@ -25,20 +23,17 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
   const [playerBReps, setPlayerBReps] = useState<number>(0);
   const [badForm, setBadForm] = useState<boolean>(false);
 
-  // Refs for MediaPipe and Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<PoseLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
   
-  // --- ANTI-CHEAT REFS ---
   const isDownRef = useRef<boolean>(false);
   const baselineYDistanceRef = useRef<number>(0);
   const baselineHipYRef = useRef<number>(0);
   const baselineKneeYRef = useRef<number>(0);
-  const calibrationStartTimeRef = useRef<number>(0);
 
-  // 1. Initialize MediaPipe Pose Landmarker
+  // 1. Initialize MediaPipe
   useEffect(() => {
     async function setupLandmarker() {
       const vision = await FilesetResolver.forVisionTasks(
@@ -55,7 +50,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       landmarkerRef.current = landmarker;
       
       if (navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadeddata = () => {
@@ -74,18 +69,15 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
     };
   }, []);
 
-  // 2. Calibration Timer (2 Seconds)
+  // 2. Calibration Timer
   useEffect(() => {
     if (phase === "calibrating") {
-      calibrationStartTimeRef.current = performance.now();
-      const timer = setTimeout(() => {
-        setPhase("countdown");
-      }, 2000);
+      const timer = setTimeout(() => setPhase("countdown"), 2000);
       return () => clearTimeout(timer);
     }
   }, [phase]);
 
-  // 3. The AI Detection & Anti-Cheat Loop
+  // 3. AI Detection & Anti-Cheat Loop
   useEffect(() => {
     if (phase !== "calibrating" && phase !== "playing" && phase !== "countdown") return;
     
@@ -98,7 +90,6 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      // 2. Fix: Canvas null check
       if (!canvas) {
         rafRef.current = requestAnimationFrame(detectPose);
         return;
@@ -110,8 +101,9 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
         return;
       }
       
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Ensure canvas matches video exactly to prevent stretching/squishing
+      if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+      if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
 
       const results = landmarkerRef.current.detectForVideo(video, performance.now());
       
@@ -121,14 +113,14 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       if (results.landmarks.length > 0) {
         const lm = results.landmarks[0];
         
-        // Draw skeleton
-        drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 4 });
-        drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 4 });
+        // Draw skeleton (Thicker so it's easy to see)
+        drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 6 });
+        drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 5 });
 
-        // --- CORE CALCULATIONS ---
-        const vis = (idx: number) => lm[idx].visibility !== undefined && lm[idx].visibility > 0.5;
+        // Relaxed visibility threshold (0.3 instead of 0.5) to prevent tracking loss
+        const vis = (idx: number) => lm[idx] && lm[idx].visibility !== undefined && lm[idx].visibility > 0.3;
+        
         if (vis(11) && vis(12) && vis(15) && vis(16) && vis(23) && vis(24) && vis(25) && vis(26)) {
-          
           const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
           const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
           const avg_hip_y = (lm[23].y + lm[24].y) / 2;
@@ -136,14 +128,11 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
 
           const current_y_distance = avg_wrist_y - avg_shoulder_y;
 
-          // --- PHASE 1: CALIBRATION ---
           if (phase === "calibrating") {
             baselineYDistanceRef.current = current_y_distance;
             baselineHipYRef.current = avg_hip_y;
             baselineKneeYRef.current = avg_knee_y;
-          } 
-          // --- PHASE 2: PLAYING STATE MACHINE ---
-          else if (phase === "playing") {
+          } else if (phase === "playing") {
             const baseline_y_distance = baselineYDistanceRef.current;
             
             if (baseline_y_distance > 0) {
@@ -151,13 +140,9 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
               const up_threshold = baseline_y_distance * 0.85;
               const anti_cheat_buffer = baseline_y_distance * 0.15;
 
-              // GOING DOWN
               if (current_y_distance < down_threshold && !isDownRef.current) {
                 isDownRef.current = true;
-              } 
-              // COMING UP
-              else if (current_y_distance > up_threshold && isDownRef.current) {
-                
+              } else if (current_y_distance > up_threshold && isDownRef.current) {
                 const isSagging = avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
                 const isKneesDropped = avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
 
@@ -186,13 +171,11 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
   // 4. Mock Opponent Logic
   useEffect(() => {
     if (phase !== "playing") return;
-    const interval = setInterval(() => {
-      setPlayerBReps((prev: number) => prev + 1);
-    }, 2500);
+    const interval = setInterval(() => setPlayerBReps((prev: number) => prev + 1), 2500);
     return () => clearInterval(interval);
   }, [phase]);
 
-  // 5. Countdown & Timer Logic
+  // 5. Countdown & Timer
   useEffect(() => {
     if (phase === "countdown") {
       if (countdown > 0) {
@@ -206,7 +189,6 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
 
   useEffect(() => {
     if (phase === "playing" && timeLeft > 0) {
-      // 3. Fix: explicitly type 't' as number
       const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearInterval(timer);
     } else if (timeLeft === 0 && phase === "playing") {
@@ -214,7 +196,6 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
     }
   }, [phase, timeLeft, playerAReps, playerBReps, onMatchEnd]);
 
-  // Tug of War Math
   const totalReps = playerAReps + playerBReps;
   const growA = totalReps === 0 ? 1 : playerAReps;
   const growB = totalReps === 0 ? 1 : playerBReps;
@@ -224,7 +205,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
     <div className="h-screen w-screen flex flex-col bg-background relative overflow-hidden">
       
       {/* Top Navbar */}
-      <div className="absolute top-0 left-0 right-0 z-30 flex justify-between items-center p-4 bg-gradient-to-b from-background to-transparent">
+      <div className="flex-shrink-0 flex justify-between items-center p-4 z-30 bg-background border-b border-slate-800">
         <button onClick={onExit} className="text-slate-400 hover:text-white text-sm font-bold border border-slate-700 px-3 py-1 rounded">
           EXIT
         </button>
@@ -237,49 +218,64 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
         <div className="w-[60px]"></div>
       </div>
 
-      {/* Bad Form Warning */}
-      {badForm && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white font-bold px-6 py-3 rounded-lg shadow-lg animate-pulse">
-          BAD FORM! KEEP HIPS & KNEES UP
-        </div>
-      )}
-
-      {/* Tug of War Container */}
-      <div className="flex flex-col h-full w-full">
-        
-        {/* Player B (Opponent - Green - Top) */}
+      {/* TUG OF WAR BAR (Fixed at top) */}
+      <div className="flex-shrink-0 flex h-32 md:h-40 w-full border-b-4 border-slate-900 shadow-2xl z-20">
+        {/* Opponent Side (Green) */}
         <div 
-          className="relative bg-green-primary/20 border-b-4 border-green-primary flex items-center justify-center transition-all duration-500 ease-out"
+          className="relative bg-green-primary/30 border-r-4 border-green-primary flex flex-col items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growB, flexBasis: 0 }}
         >
-          <div className="text-center z-10">
-            <div className="text-green-light text-xl font-bold mb-2">OPPONENT</div>
-            <div className="text-green-light text-8xl font-display font-extrabold drop-shadow-lg">
-              {playerBReps}
-            </div>
+          <div className="text-green-light text-sm md:text-lg font-bold uppercase tracking-wider">Opponent</div>
+          <div className="text-green-light text-5xl md:text-7xl font-display font-extrabold drop-shadow-lg">
+            {playerBReps}
           </div>
         </div>
 
-        {/* Player A (User - Blue - Bottom) */}
+        {/* User Side (Blue) */}
         <div 
-          className="relative bg-blue-primary/10 border-t-4 border-blue-primary flex items-center justify-center transition-all duration-500 ease-out overflow-hidden"
+          className="relative bg-blue-primary/30 border-l-4 border-blue-primary flex flex-col items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growA, flexBasis: 0 }}
         >
-          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-40" playsInline />
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
-
-          <div className="text-center z-10 mt-10 pointer-events-none">
-            <div className="text-blue-light text-8xl font-display font-extrabold drop-shadow-lg">
-              {playerAReps}
-            </div>
-            <div className="text-blue-light text-xl font-bold mt-2">{user.name.toUpperCase()}</div>
+          <div className="text-blue-light text-sm md:text-lg font-bold uppercase tracking-wider">{user.name}</div>
+          <div className="text-blue-light text-5xl md:text-7xl font-display font-extrabold drop-shadow-lg">
+            {playerAReps}
           </div>
         </div>
       </div>
 
-      {/* Loading / Calibrating / Countdown Overlays */}
+      {/* Bad Form Warning */}
+      {badForm && (
+        <div className="absolute top-48 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white font-bold px-6 py-3 rounded-lg shadow-lg animate-pulse text-lg">
+          BAD FORM! KEEP HIPS & KNEES UP
+        </div>
+      )}
+
+      {/* FIXED CAMERA CONTAINER (Takes remaining space) */}
+      <div className="flex-grow relative bg-black flex items-center justify-center overflow-hidden">
+        <video 
+          ref={videoRef} 
+          className="absolute h-full w-full object-cover" 
+          style={{ transform: 'scaleX(-1)' }} // Mirror the camera so it feels natural
+          playsInline 
+        />
+        <canvas 
+          ref={canvasRef} 
+          className="absolute h-full w-full object-cover" 
+          style={{ transform: 'scaleX(-1)' }} // Mirror the skeleton to match
+        />
+        
+        {/* Rep Overlay on Camera */}
+        <div className="absolute bottom-6 right-6 z-10 bg-background/70 backdrop-blur-sm px-6 py-3 rounded-xl border border-blue-primary text-right pointer-events-none">
+          <div className="text-xs uppercase text-slate-400 tracking-widest font-bold">Your Reps</div>
+          <div className="text-5xl font-display font-extrabold text-blue-light tabular-nums">
+            {playerAReps}
+          </div>
+        </div>
+      </div>
+
+      {/* Overlays */}
       {phase !== "playing" && (
-        <div className="absolute inset-0 bg-background/90 z-40 flex flex-col items-center justify-center backdrop-blur-sm">
+        <div className="absolute inset-0 bg-background/95 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
           {phase === "loading" && (
             <div className="text-3xl font-display font-bold text-slate-400 animate-pulse">
               INITIALIZING AI TRACKER...
@@ -292,8 +288,8 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
                 CALIBRATING BASELINE
               </h2>
               <p className="text-slate-300 text-lg">Hold a strict UP plank position</p>
-              <div className="mt-4 w-64 h-2 bg-surface rounded-full overflow-hidden">
-                <div className="h-full bg-blue-primary animate-[progress_2s_linear_infinite]" style={{animationName: 'progress'}}></div>
+              <div className="mt-6 w-64 h-2 bg-surface rounded-full overflow-hidden mx-auto">
+                <div className="h-full bg-blue-primary w-full origin-left animate-[progress_2s_linear_infinite]" style={{transform: 'scaleX(0)'}}></div>
               </div>
             </div>
           )}
