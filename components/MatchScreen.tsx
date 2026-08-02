@@ -113,9 +113,17 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       if (results.landmarks.length > 0) {
         const lm = results.landmarks[0];
         
-        // Draw skeleton (Thicker so it's easy to see)
-        drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 6 });
-        drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 5 });
+        // 1. Filter out face connections so no lines are drawn on the face
+        const bodyConnections = PoseLandmarker.POSE_CONNECTIONS.filter(
+          (connection: { start: number; end: number }) => connection.start >= 11 && connection.end >= 11
+        );
+
+        // 2. Draw only body skeleton lines
+        drawingUtils.drawConnectors(lm, bodyConnections, { color: "#4ADE80", lineWidth: 6 });
+        
+        // 3. Draw only body dots (skip face indices 0-10)
+        const bodyLandmarks = lm.slice(11);
+        drawingUtils.drawLandmarks(bodyLandmarks, { color: "#22C55E", radius: 5 });
 
         // Relaxed visibility threshold (0.3 instead of 0.5) to prevent tracking loss
         const vis = (idx: number) => lm[idx] && lm[idx].visibility !== undefined && lm[idx].visibility > 0.3;
@@ -126,7 +134,8 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
           const avg_hip_y = (lm[23].y + lm[24].y) / 2;
           const avg_knee_y = (lm[25].y + lm[26].y) / 2;
 
-          const current_y_distance = avg_wrist_y - avg_shoulder_y;
+          // FIX: Use Math.abs so it works regardless of camera angle
+          const current_y_distance = Math.abs(avg_wrist_y - avg_shoulder_y);
 
           if (phase === "calibrating") {
             baselineYDistanceRef.current = current_y_distance;
@@ -135,10 +144,14 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
           } else if (phase === "playing") {
             const baseline_y_distance = baselineYDistanceRef.current;
             
-            if (baseline_y_distance > 0) {
+            // FIX: Check that baseline is greater than 0.01 to avoid tiny glitchy numbers
+            if (baseline_y_distance > 0.01) {
               const down_threshold = baseline_y_distance * 0.50;
               const up_threshold = baseline_y_distance * 0.85;
               const anti_cheat_buffer = baseline_y_distance * 0.15;
+
+              // DEBUG LOG: Check the console to see the numbers in real-time
+              console.log(`Dist: ${current_y_distance.toFixed(3)}, Down: ${down_threshold.toFixed(3)}, Up: ${up_threshold.toFixed(3)}, State: ${isDownRef.current}`);
 
               if (current_y_distance < down_threshold && !isDownRef.current) {
                 isDownRef.current = true;
