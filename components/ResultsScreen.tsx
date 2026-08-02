@@ -1,5 +1,24 @@
 "use client";
 
+export interface ResultsData {
+  myReps: number;
+  oppReps: number;
+  eloChange: number;
+  winner: string;
+}
+
+interface ResultsScreenProps {
+  results: ResultsData; // Strictly typed!
+  user: User;
+  onRematch: () => void;
+  onDashboard: () => void;
+}
+
+interface User {
+  name: string;
+  elo: number;
+}
+
 export default function ResultsScreen({ results, user, onRematch, onDashboard }: any) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">

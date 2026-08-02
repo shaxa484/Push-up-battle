@@ -1,20 +1,30 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
+import { socket } from "@/lib/socket";
 
 interface User {
   name: string;
   elo: number;
 }
 
+export interface MatchData {
+  matchId: string;
+  opponentName: string;
+  opponentElo: number;
+  duration: number;
+  startTime: number;
+}
+
 interface MatchScreenProps {
   user: User;
   duration: number;
-  onMatchEnd: (playerAReps: number, playerBReps: number) => void;
+  matchData: MatchData;
+  onMatchEnd: () => void;
   onExit: () => void;
 }
 
-export default function MatchScreen({ user, duration, onMatchEnd, onExit }: MatchScreenProps) {
+export default function MatchScreen({ user, duration, matchData, onMatchEnd, onExit }: MatchScreenProps) {
   const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing">("loading");
   const [countdown, setCountdown] = useState<number>(3);
   const [timeLeft, setTimeLeft] = useState<number>(duration);
@@ -183,7 +193,12 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
                 } else {
                   console.log(">>> SUCCESS: Rep Counted!");
                   isDownRef.current = false;
-                  setPlayerAReps((prev: number) => prev + 1);
+                  setPlayerAReps((prev: number) => {
+                    const newReps = prev + 1;
+                    // Send your new rep count to the server/opponent
+                    socket.emit("rep_update", matchData.matchId, newReps);
+                    return newReps;
+                  });
                 }
               }
             }
@@ -199,11 +214,20 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
     };
   }, [phase]);
 
-  // 4. Mock Opponent Logic
+  // 4. REAL-TIME MULTIPLAYER LOGIC
   useEffect(() => {
     if (phase !== "playing") return;
-    const interval = setInterval(() => setPlayerBReps((prev: number) => prev + 1), 2500);
-    return () => clearInterval(interval);
+
+    // Listen for opponent's reps
+    const handleOpponentRep = (reps: number) => {
+      setPlayerBReps(reps);
+    };
+
+    socket.on("opponent_rep_update", handleOpponentRep);
+
+    return () => {
+      socket.off("opponent_rep_update", handleOpponentRep);
+    };
   }, [phase]);
 
   // 5. Countdown & Timer
@@ -223,7 +247,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearInterval(timer);
     } else if (timeLeft === 0 && phase === "playing") {
-      onMatchEnd(playerAReps, playerBReps);
+      onMatchEnd();
     }
   }, [phase, timeLeft, playerAReps, playerBReps, onMatchEnd]);
 

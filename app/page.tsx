@@ -1,46 +1,71 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Dashboard from "@/components/Dashboard";
-import MatchScreen from "@/components/MatchScreen";
-import ResultsScreen from "@/components/ResultsScreen";
+import MatchScreen,{MatchData} from "@/components/MatchScreen";
+import ResultsScreen,{ResultsData} from "@/components/ResultsScreen";
+import UsernameScreen from "@/components/UsernameScreen";
+import { socket } from "@/lib/socket";
 
 export default function Home() {
-  const [screen, setScreen] = useState<"dashboard" | "match" | "results">("dashboard");
-  const [duration, setDuration] = useState(60);
-  const [user, setUser] = useState({ name: "PlayerOne", elo: 1200 });
-  
-  // Mock match results for Step 1
-  const [results, setResults] = useState<{won: boolean, myReps: number, oppReps: number, eloChange: number} | null>(null);
+  const [screen, setScreen] = useState<"username" | "dashboard" | "match" | "results">("username");
+  const [user, setUser] = useState<{ name: string; elo: number } | null>(null);
+  const [matchData, setMatchData] = useState<MatchData | null>(null);
+  const [results, setResults] = useState<ResultsData | null>(null);
 
-  const handleFindMatch = (selectedDuration: number) => {
-    setDuration(selectedDuration);
-    setScreen("match");
+  useEffect(() => {
+    socket.connect();
+
+    socket.on("registered", (data: { name: string; elo: number }) => {
+      setUser(data);
+      setScreen("dashboard");
+    });
+
+    socket.on("match_found", (data: MatchData) => {
+      setMatchData(data);
+      setScreen("match");
+    });
+
+    socket.on("match_end", (data: ResultsData) => {
+      setResults(data);
+      setScreen("results");
+      if (user) {
+        setUser({ ...user, elo: user.elo + data.eloChange });
+      }
+    });
+
+    return () => {
+      socket.off("registered");
+      socket.off("match_found");
+      socket.off("match_end");
+    };
+  }, [user]);
+
+  const handleRegister = (username: string) => {
+    socket.emit("register", username);
   };
 
-  const handleMatchEnd = (myReps: number, oppReps: number) => {
-    const won = myReps > oppReps;
-    const eloChange = won ? 15 : -15; // Mock ELO change
-    setUser(prev => ({ ...prev, elo: prev.elo + eloChange }));
-    setResults({ won, myReps, oppReps, eloChange });
-    setScreen("results");
+  const handleFindMatch = (duration: number) => {
+    socket.emit("find_match", duration);
   };
 
   return (
     <main className="min-h-screen">
-      {screen === "dashboard" && <Dashboard user={user} onFindMatch={handleFindMatch} />}
-      {screen === "match" && (
+      {screen === "username" && <UsernameScreen onRegister={handleRegister} />}
+      {screen === "dashboard" && user && <Dashboard user={user} onFindMatch={handleFindMatch} />}
+      {screen === "match" && matchData && user && (
         <MatchScreen 
           user={user} 
-          duration={duration} 
-          onMatchEnd={handleMatchEnd} 
+          duration={matchData.duration} 
+          matchData={matchData}
+          onMatchEnd={() => {}} // Server handles this via "match_end" event
           onExit={() => setScreen("dashboard")} 
         />
       )}
-      {screen === "results" && results && (
+      {screen === "results" && results && user && (
         <ResultsScreen 
           results={results} 
           user={user}
-          onRematch={() => setScreen("match")}
+          onRematch={() => handleFindMatch(matchData ? matchData.duration : 60)}
           onDashboard={() => setScreen("dashboard")} 
         />
       )}
