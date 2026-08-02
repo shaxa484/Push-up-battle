@@ -17,6 +17,8 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
   const [challenges, setChallenges] = useState<Challenge[]>([]);
 
   useEffect(() => {
+    // Ask server for the list immediately when Dashboard mounts
+    socket.emit("get_online_users");
 
     socket.on("online_users", (users: OnlineUser[]) => {
       setOnlineUsers(users);
@@ -66,7 +68,8 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
 
   // Filter users based on search query
   const filteredUsers = onlineUsers.filter(u => 
-    u.username.toLowerCase().includes(searchQuery.toLowerCase())
+    u.username.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    u.username !== user.name
   );
 
   return (

@@ -79,6 +79,10 @@ io.on("connection", (socket: Socket) => {
     io.emit("online_users", onlineUsers);
   };
 
+  socket.on("get_online_users", () => {
+    broadcastOnlineUsers();
+  });
+
   socket.on("register", (username: string) => {
     users[socket.id] = { id: socket.id, username, elo: 1000, inMatch: false };
     socket.emit("registered", users[socket.id]);
