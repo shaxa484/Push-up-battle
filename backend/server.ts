@@ -72,18 +72,17 @@ const startMatchLogic = (p1: User, p2: User, duration: number) => {
 
 io.on("connection", (socket: Socket) => {
   console.log(`User connected: ${socket.id}`);
+  const broadcastOnlineUsers = () => {
+    const onlineUsers = Object.values(users)
+      .filter(u => !u.inMatch)
+      .map(u => ({ username: u.username, elo: u.elo }));
+    io.emit("online_users", onlineUsers);
+  };
 
   socket.on("register", (username: string) => {
     users[socket.id] = { id: socket.id, username, elo: 1000, inMatch: false };
     socket.emit("registered", users[socket.id]);
-  });
-
-  // 1. Get list of online users (excluding self and people in matches)
-  socket.on("get_online_users", () => {
-    const onlineUsers = Object.values(users)
-      .filter(u => u.id !== socket.id && !u.inMatch)
-      .map(u => ({ username: u.username, elo: u.elo }));
-    socket.emit("online_users", onlineUsers);
+    broadcastOnlineUsers();
   });
 
   // 2. Standard Matchmaking
@@ -163,6 +162,7 @@ io.on("connection", (socket: Socket) => {
     console.log(`User disconnected: ${socket.id}`);
     matchQueue = matchQueue.filter(id => id !== socket.id);
     delete users[socket.id];
+    broadcastOnlineUsers();
   });
 });
 

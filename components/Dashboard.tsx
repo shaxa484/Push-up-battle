@@ -17,10 +17,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
   const [challenges, setChallenges] = useState<Challenge[]>([]);
 
   useEffect(() => {
-    // Fetch online users immediately and every 5 seconds
-    const fetchUsers = () => socket.emit("get_online_users");
-    fetchUsers();
-    const interval = setInterval(fetchUsers, 5000);
 
     socket.on("online_users", (users: OnlineUser[]) => {
       setOnlineUsers(users);
@@ -36,7 +32,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
     });
 
     return () => {
-      clearInterval(interval);
       socket.off("online_users");
       socket.off("challenge_received");
       socket.off("challenge_declined");
