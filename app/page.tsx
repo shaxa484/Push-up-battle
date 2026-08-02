@@ -1,8 +1,9 @@
+// src/app/page.tsx
 "use client";
 import { useState, useEffect } from "react";
 import Dashboard from "@/components/Dashboard";
-import MatchScreen,{MatchData} from "@/components/MatchScreen";
-import ResultsScreen,{ResultsData} from "@/components/ResultsScreen";
+import MatchScreen, { MatchData } from "@/components/MatchScreen";
+import ResultsScreen, { ResultsData } from "@/components/ResultsScreen";
 import UsernameScreen from "@/components/UsernameScreen";
 import { socket } from "@/lib/socket";
 
@@ -48,6 +49,11 @@ export default function Home() {
     socket.emit("find_match", duration);
   };
 
+  const handleFindNewMatch = () => {
+    setResults(null);
+    setScreen("dashboard");
+  };
+
   return (
     <main className="min-h-screen">
       {screen === "username" && <UsernameScreen onRegister={handleRegister} />}
@@ -57,7 +63,7 @@ export default function Home() {
           user={user} 
           duration={matchData.duration} 
           matchData={matchData}
-          onMatchEnd={() => {}} // Server handles this via "match_end" event
+          onMatchEnd={() => {}} 
           onExit={() => setScreen("dashboard")} 
         />
       )}
@@ -65,7 +71,7 @@ export default function Home() {
         <ResultsScreen 
           results={results} 
           user={user}
-          onRematch={() => handleFindMatch(matchData ? matchData.duration : 60)}
+          onFindNewMatch={handleFindNewMatch}
           onDashboard={() => setScreen("dashboard")} 
         />
       )}
