@@ -1,4 +1,3 @@
-// pushup-arena-server/server.ts
 import express from "express";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
@@ -149,7 +148,7 @@ io.on("connection", (socket: Socket) => {
       }
     }
   });
-  
+
   // 4. Real-time Rep Updates
   socket.on("rep_update", (matchId: string, reps: number) => {
     const match = activeMatches[matchId];
@@ -205,5 +204,5 @@ function endMatch(matchId: string) {
 
 const PORT = 3001;
 httpServer.listen(PORT, () => {
-  console.log(`Arena Server running on http://localhost:${PORT}`);
+  console.log(`Battle Server running on http://localhost:${PORT}`);
 });

@@ -79,7 +79,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
       {/* Navbar */}
       <nav className="flex justify-between items-center mb-12 pb-4 border-b border-slate-800">
         <h1 className="text-2xl font-display font-extrabold tracking-tight text-white">
-          PUSH<span className="text-green-primary">UP</span> ARENA
+          PUSH<span className="text-green-primary">UP</span> BATTLE
         </h1>
         <div className="flex items-center gap-6">
           <span className="text-slate-300 font-medium hidden sm:block">{user.name}</span>
@@ -150,8 +150,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
           <div className="mt-auto">
             <button
               onClick={isSearching ? handleCancelSearch : handleFindMatch}
-              disabled={isSearching}
-              className={`w-full font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg transition-all duration-200 ${
+              className={`w-full font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg transition-all duration-200 cursor-pointer ${
                 isSearching 
                   ? "bg-slate-700 text-slate-400 cursor-not-allowed animate-pulse" 
                   : "bg-blue-primary hover:bg-blue-light text-white shadow-blue-primary/30"
