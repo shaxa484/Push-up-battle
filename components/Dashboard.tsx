@@ -3,6 +3,12 @@ import { useState } from "react";
 
 export default function Dashboard({ user, onFindMatch }: any) {
   const [duration, setDuration] = useState(60);
+  const [isSearching, setIsSearching] = useState(false); // ADD THIS
+
+  const handleFindMatch = () => {
+    setIsSearching(true);
+    onFindMatch(duration);
+  };
 
   return (
     <div className="max-w-7xl mx-auto p-6 lg:p-8">
@@ -35,11 +41,12 @@ export default function Dashboard({ user, onFindMatch }: any) {
               <button
                 key={opt.value}
                 onClick={() => setDuration(opt.value)}
+                disabled={isSearching} // Disable changing duration while searching
                 className={`p-4 rounded-lg border-2 font-display font-bold text-lg transition-all duration-200 ${
                   duration === opt.value
                     ? "bg-blue-dark/40 border-blue-primary text-white scale-105"
                     : "bg-background border-slate-700 text-slate-400 hover:border-slate-500"
-                }`}
+                } ${isSearching ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {opt.label}
               </button>
@@ -48,10 +55,15 @@ export default function Dashboard({ user, onFindMatch }: any) {
 
           <div className="mt-auto">
             <button
-              onClick={() => onFindMatch(duration)}
-              className="w-full bg-blue-primary hover:bg-blue-light transition-colors duration-200 text-white font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg shadow-blue-primary/30"
+              onClick={handleFindMatch}
+              disabled={isSearching}
+              className={`w-full font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg transition-all duration-200 ${
+                isSearching 
+                  ? "bg-slate-700 text-slate-400 cursor-not-allowed animate-pulse" 
+                  : "bg-blue-primary hover:bg-blue-light text-white shadow-blue-primary/30"
+              }`}
             >
-              FIND MATCH
+              {isSearching ? "SEARCHING FOR OPPONENT..." : "FIND MATCH"}
             </button>
           </div>
         </div>
