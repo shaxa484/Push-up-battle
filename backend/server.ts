@@ -85,7 +85,10 @@ io.on("connection", (socket: Socket) => {
 
   socket.on("register", (username: string) => {
     users[socket.id] = { id: socket.id, username, elo: 1000, inMatch: false };
-    socket.emit("registered", users[socket.id]);
+    
+    // FIX: Send 'name' instead of 'username' so the frontend can read it
+    socket.emit("registered", { name: username, elo: users[socket.id].elo });
+    
     broadcastOnlineUsers();
   });
 
