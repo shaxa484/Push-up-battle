@@ -2,15 +2,28 @@
 import { useState, useEffect, useRef } from "react";
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
 
-export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any) {
+// 1. Define strict interfaces instead of using 'any'
+interface User {
+  name: string;
+  elo: number;
+}
+
+interface MatchScreenProps {
+  user: User;
+  duration: number;
+  onMatchEnd: (playerAReps: number, playerBReps: number) => void;
+  onExit: () => void;
+}
+
+export default function MatchScreen({ user, duration, onMatchEnd, onExit }: MatchScreenProps) {
   // App Phases: loading -> calibrating -> countdown -> playing
   const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing">("loading");
-  const [countdown, setCountdown] = useState(3);
-  const [timeLeft, setTimeLeft] = useState(duration);
+  const [countdown, setCountdown] = useState<number>(3);
+  const [timeLeft, setTimeLeft] = useState<number>(duration);
   
-  const [playerAReps, setPlayerAReps] = useState(0);
-  const [playerBReps, setPlayerBReps] = useState(0);
-  const [badForm, setBadForm] = useState(false); // Triggers UI warning
+  const [playerAReps, setPlayerAReps] = useState<number>(0);
+  const [playerBReps, setPlayerBReps] = useState<number>(0);
+  const [badForm, setBadForm] = useState<boolean>(false);
 
   // Refs for MediaPipe and Camera
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -19,11 +32,11 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
   const rafRef = useRef<number | null>(null);
   
   // --- ANTI-CHEAT REFS ---
-  const isDownRef = useRef(false);
-  const baselineYDistanceRef = useRef(0);
-  const baselineHipYRef = useRef(0);
-  const baselineKneeYRef = useRef(0);
-  const calibrationStartTimeRef = useRef(0);
+  const isDownRef = useRef<boolean>(false);
+  const baselineYDistanceRef = useRef<number>(0);
+  const baselineHipYRef = useRef<number>(0);
+  const baselineKneeYRef = useRef<number>(0);
+  const calibrationStartTimeRef = useRef<number>(0);
 
   // 1. Initialize MediaPipe Pose Landmarker
   useEffect(() => {
@@ -47,7 +60,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
           videoRef.current.srcObject = stream;
           videoRef.current.onloadeddata = () => {
             videoRef.current?.play();
-            setPhase("calibrating"); // Go to calibration first
+            setPhase("calibrating");
           };
         }
       }
@@ -84,73 +97,77 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
 
       const video = videoRef.current;
       const canvas = canvasRef.current;
+      
+      // 2. Fix: Canvas null check
+      if (!canvas) {
+        rafRef.current = requestAnimationFrame(detectPose);
+        return;
+      }
+      
       const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        rafRef.current = requestAnimationFrame(detectPose);
+        return;
+      }
       
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
       const results = landmarkerRef.current.detectForVideo(video, performance.now());
       
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const drawingUtils = new DrawingUtils(ctx);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const drawingUtils = new DrawingUtils(ctx);
+      
+      if (results.landmarks.length > 0) {
+        const lm = results.landmarks[0];
         
-        if (results.landmarks.length > 0) {
-          const lm = results.landmarks[0];
+        // Draw skeleton
+        drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 4 });
+        drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 4 });
+
+        // --- CORE CALCULATIONS ---
+        const vis = (idx: number) => lm[idx].visibility !== undefined && lm[idx].visibility > 0.5;
+        if (vis(11) && vis(12) && vis(15) && vis(16) && vis(23) && vis(24) && vis(25) && vis(26)) {
           
-          // Draw skeleton
-          drawingUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#4ADE80", lineWidth: 4 });
-          drawingUtils.drawLandmarks(lm, { color: "#22C55E", radius: 4 });
+          const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
+          const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
+          const avg_hip_y = (lm[23].y + lm[24].y) / 2;
+          const avg_knee_y = (lm[25].y + lm[26].y) / 2;
 
-          // --- CORE CALCULATIONS ---
-          // Ensure landmarks are visible
-          const vis = (idx: number) => lm[idx].visibility && lm[idx].visibility > 0.5;
-          if (vis(11) && vis(12) && vis(15) && vis(16) && vis(23) && vis(24) && vis(25) && vis(26)) {
+          const current_y_distance = avg_wrist_y - avg_shoulder_y;
+
+          // --- PHASE 1: CALIBRATION ---
+          if (phase === "calibrating") {
+            baselineYDistanceRef.current = current_y_distance;
+            baselineHipYRef.current = avg_hip_y;
+            baselineKneeYRef.current = avg_knee_y;
+          } 
+          // --- PHASE 2: PLAYING STATE MACHINE ---
+          else if (phase === "playing") {
+            const baseline_y_distance = baselineYDistanceRef.current;
             
-            const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
-            const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
-            const avg_hip_y = (lm[23].y + lm[24].y) / 2;
-            const avg_knee_y = (lm[25].y + lm[26].y) / 2;
+            if (baseline_y_distance > 0) {
+              const down_threshold = baseline_y_distance * 0.50;
+              const up_threshold = baseline_y_distance * 0.85;
+              const anti_cheat_buffer = baseline_y_distance * 0.15;
 
-            const current_y_distance = avg_wrist_y - avg_shoulder_y;
+              // GOING DOWN
+              if (current_y_distance < down_threshold && !isDownRef.current) {
+                isDownRef.current = true;
+              } 
+              // COMING UP
+              else if (current_y_distance > up_threshold && isDownRef.current) {
+                
+                const isSagging = avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
+                const isKneesDropped = avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
 
-            // --- PHASE 1: CALIBRATION ---
-            if (phase === "calibrating") {
-              // Continuously update baselines so the final frame is the saved baseline
-              baselineYDistanceRef.current = current_y_distance;
-              baselineHipYRef.current = avg_hip_y;
-              baselineKneeYRef.current = avg_knee_y;
-            } 
-            // --- PHASE 2: PLAYING STATE MACHINE ---
-            else if (phase === "playing") {
-              const baseline_y_distance = baselineYDistanceRef.current;
-              
-              if (baseline_y_distance > 0) { // Prevent division by zero
-                const down_threshold = baseline_y_distance * 0.50;
-                const up_threshold = baseline_y_distance * 0.85;
-                const anti_cheat_buffer = baseline_y_distance * 0.15;
-
-                // GOING DOWN
-                if (current_y_distance < down_threshold && !isDownRef.current) {
-                  isDownRef.current = true;
-                } 
-                // COMING UP
-                else if (current_y_distance > up_threshold && isDownRef.current) {
-                  
-                  // CHEAT CHECK 1 & 2
-                  const isSagging = avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
-                  const isKneesDropped = avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
-
-                  if (isSagging || isKneesDropped) {
-                    // FAIL CHECK
-                    isDownRef.current = false;
-                    setBadForm(true);
-                    setTimeout(() => setBadForm(false), 2000); // Hide warning after 2s
-                  } else {
-                    // SUCCESSFUL REP
-                    isDownRef.current = false;
-                    setPlayerAReps(prev => prev + 1);
-                  }
+                if (isSagging || isKneesDropped) {
+                  isDownRef.current = false;
+                  setBadForm(true);
+                  setTimeout(() => setBadForm(false), 2000);
+                } else {
+                  isDownRef.current = false;
+                  setPlayerAReps((prev: number) => prev + 1);
                 }
               }
             }
@@ -170,7 +187,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
   useEffect(() => {
     if (phase !== "playing") return;
     const interval = setInterval(() => {
-      setPlayerBReps(prev => prev + 1);
+      setPlayerBReps((prev: number) => prev + 1);
     }, 2500);
     return () => clearInterval(interval);
   }, [phase]);
@@ -179,7 +196,7 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
   useEffect(() => {
     if (phase === "countdown") {
       if (countdown > 0) {
-        const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+        const timer = setTimeout(() => setCountdown((c: number) => c - 1), 1000);
         return () => clearTimeout(timer);
       } else {
         setPhase("playing");
@@ -189,9 +206,10 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: any)
 
   useEffect(() => {
     if (phase === "playing" && timeLeft > 0) {
-      const timer = setInterval(() => setTimeLeft(t => t - 1), 1000);
+      // 3. Fix: explicitly type 't' as number
+      const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearInterval(timer);
-    } else if (timeLeft === 0) {
+    } else if (timeLeft === 0 && phase === "playing") {
       onMatchEnd(playerAReps, playerBReps);
     }
   }, [phase, timeLeft, playerAReps, playerBReps, onMatchEnd]);
