@@ -15,7 +15,7 @@ export default function Dashboard({ user, onFindMatch }: any) {
       {/* Navbar */}
       <nav className="flex justify-between items-center mb-12 pb-4 border-b border-slate-800">
         <h1 className="text-2xl font-display font-extrabold tracking-tight text-white">
-          PUSH<span className="text-green-primary">UP</span> ARENA
+          PUSH<span className="text-green-primary">UP</span> BATTLE
         </h1>
         <div className="flex items-center gap-6">
           <span className="text-slate-300 font-medium hidden sm:block">{user.name}</span>
