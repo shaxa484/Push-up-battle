@@ -130,7 +130,26 @@ io.on("connection", (socket: Socket) => {
       }
     }
   });
+  socket.on("cancel_matchmaking", () => {
+    matchQueue = matchQueue.filter(id => id !== socket.id);
+  });
 
+  // Leave Match Early (Quit)
+  socket.on("leave_match", (matchId: string) => {
+    const match = activeMatches[matchId];
+    if (match) {
+      const leaverId = socket.id;
+      const winnerId = match.players.find(id => id !== leaverId);
+      
+      if (winnerId) {
+        // Force the leaver to have 0 reps, and give the winner 1 rep so they win
+        match.scores[leaverId] = 0;
+        match.scores[winnerId] = Math.max(1, match.scores[winnerId]);
+        endMatch(matchId); // End the match immediately
+      }
+    }
+  });
+  
   // 4. Real-time Rep Updates
   socket.on("rep_update", (matchId: string, reps: number) => {
     const match = activeMatches[matchId];

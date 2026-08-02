@@ -25,7 +25,7 @@ interface MatchScreenProps {
 }
 
 export default function MatchScreen({ user, duration, matchData, onMatchEnd, onExit }: MatchScreenProps) {
-  const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing">("loading");
+  const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing" | "ended">("loading");
   const [countdown, setCountdown] = useState<number>(3);
   const [timeLeft, setTimeLeft] = useState<number>(duration);
   
@@ -230,6 +230,14 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     };
   }, [phase]);
 
+  // Handle clicking EXIT button
+  const handleExit = () => {
+    if (matchData?.matchId && phase === "playing") {
+      socket.emit("leave_match", matchData.matchId);
+    }
+    onExit();
+  };
+
   // 5. Countdown & Timer
   useEffect(() => {
     if (phase === "countdown") {
@@ -247,9 +255,20 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearInterval(timer);
     } else if (timeLeft === 0 && phase === "playing") {
-      onMatchEnd();
+      // FIX: Stop the match locally and wait for server results
+      setPhase("ended");
+
+      // Turn off the camera immediately since the match is over
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      // Failsafe: If server doesn't send results in 5 seconds, force exit
+      const failsafe = setTimeout(() => onExit(), 5000);
+      return () => clearTimeout(failsafe);
     }
-  }, [phase, timeLeft, playerAReps, playerBReps, onMatchEnd]);
+  }, [phase, timeLeft, onExit]);
 
   const totalReps = playerAReps + playerBReps;
   const growA = totalReps === 0 ? 1 : playerAReps;
@@ -261,7 +280,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       
       {/* Top Navbar */}
       <div className="flex-shrink-0 flex justify-between items-center p-4 z-30 bg-background border-b border-slate-800">
-        <button onClick={onExit} className="text-slate-400 hover:text-white text-sm font-bold border border-slate-700 px-3 py-1 rounded">
+        <button onClick={handleExit} className="text-slate-400 hover:text-white text-sm font-bold border border-slate-700 px-3 py-1 rounded">
           EXIT
         </button>
         <div className="text-center">
@@ -333,7 +352,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         <div className="absolute inset-0 bg-background/95 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
           {phase === "loading" && (
             <div className="text-3xl font-display font-bold text-slate-400 animate-pulse">
-              INITIALIZING AI TRACKER...
+              INITIALIZING POSE TRACKER...
             </div>
           )}
           
@@ -357,6 +376,12 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               </div>
             </>
           )}
+
+          {phase === "ended" && (
+            <div className="text-3xl font-display font-bold text-green-light animate-pulse">
+              CALCULATING RESULTS...
+            </div>
+            )}
         </div>
       )}
     </div>

@@ -48,6 +48,11 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
     onFindMatch(duration);
   };
 
+  const handleCancelSearch = () => {
+    socket.emit("cancel_matchmaking");
+    setIsSearching(false);
+  };
+
   const handleSendChallenge = (targetUsername: string) => {
     socket.emit("challenge_user", { targetUsername, duration });
     setIsSearching(true);
@@ -144,7 +149,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
 
           <div className="mt-auto">
             <button
-              onClick={handleFindMatch}
+              onClick={isSearching ? handleCancelSearch : handleFindMatch}
               disabled={isSearching}
               className={`w-full font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg transition-all duration-200 ${
                 isSearching 
@@ -152,7 +157,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
                   : "bg-blue-primary hover:bg-blue-light text-white shadow-blue-primary/30"
               }`}
             >
-              {isSearching ? "WAITING FOR OPPONENT..." : "FIND MATCH"}
+              {isSearching ? "CANCEL SEARCH" : "FIND MATCH"}
             </button>
           </div>
         </div>
