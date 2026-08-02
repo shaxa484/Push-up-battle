@@ -27,11 +27,13 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const landmarkerRef = useRef<PoseLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
-  
+  const streamRef = useRef<MediaStream | null>(null);
+
   const isDownRef = useRef<boolean>(false);
   const baselineYDistanceRef = useRef<number>(0);
   const baselineHipYRef = useRef<number>(0);
   const baselineKneeYRef = useRef<number>(0);
+ 
 
   // 1. Initialize MediaPipe
   useEffect(() => {
@@ -50,7 +52,10 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
       landmarkerRef.current = landmarker;
       
       if (navigator.mediaDevices.getUserMedia) {
+        
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        streamRef.current = stream; 
+        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadeddata = () => {
@@ -62,9 +67,15 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
     }
     setupLandmarker();
     return () => {
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
     };
   }, []);
@@ -128,14 +139,16 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
         // Relaxed visibility threshold (0.3 instead of 0.5) to prevent tracking loss
         const vis = (idx: number) => lm[idx] && lm[idx].visibility !== undefined && lm[idx].visibility > 0.3;
         
-        if (vis(11) && vis(12) && vis(15) && vis(16) && vis(23) && vis(24) && vis(25) && vis(26)) {
+        if (vis(11) && vis(12) && vis(15) && vis(16)) {
           const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
           const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
           const avg_hip_y = (lm[23].y + lm[24].y) / 2;
           const avg_knee_y = (lm[25].y + lm[26].y) / 2;
 
-          // FIX: Use Math.abs so it works regardless of camera angle
           const current_y_distance = Math.abs(avg_wrist_y - avg_shoulder_y);
+
+          // DEBUG LOG: This will print constantly so we know the AI sees you
+          console.log(`Current Dist: ${current_y_distance.toFixed(3)}`);
 
           if (phase === "calibrating") {
             baselineYDistanceRef.current = current_y_distance;
@@ -144,26 +157,31 @@ export default function MatchScreen({ user, duration, onMatchEnd, onExit }: Matc
           } else if (phase === "playing") {
             const baseline_y_distance = baselineYDistanceRef.current;
             
-            // FIX: Check that baseline is greater than 0.01 to avoid tiny glitchy numbers
             if (baseline_y_distance > 0.01) {
               const down_threshold = baseline_y_distance * 0.50;
               const up_threshold = baseline_y_distance * 0.85;
               const anti_cheat_buffer = baseline_y_distance * 0.15;
 
-              // DEBUG LOG: Check the console to see the numbers in real-time
-              console.log(`Dist: ${current_y_distance.toFixed(3)}, Down: ${down_threshold.toFixed(3)}, Up: ${up_threshold.toFixed(3)}, State: ${isDownRef.current}`);
-
+              // GOING DOWN
               if (current_y_distance < down_threshold && !isDownRef.current) {
+                console.log(">>> STATE: DOWN");
                 isDownRef.current = true;
-              } else if (current_y_distance > up_threshold && isDownRef.current) {
-                const isSagging = avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
-                const isKneesDropped = avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
+              } 
+              // COMING UP
+              else if (current_y_distance > up_threshold && isDownRef.current) {
+                console.log(">>> STATE: UP. CHECKING FORM...");
+                
+                // Only run anti-cheat if hips/knees are visible. Otherwise, just count it.
+                const isSagging = lm[23] && lm[24] && avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
+                const isKneesDropped = lm[25] && lm[26] && avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
 
                 if (isSagging || isKneesDropped) {
+                  console.log(">>> FAILED: Bad form");
                   isDownRef.current = false;
                   setBadForm(true);
                   setTimeout(() => setBadForm(false), 2000);
                 } else {
+                  console.log(">>> SUCCESS: Rep Counted!");
                   isDownRef.current = false;
                   setPlayerAReps((prev: number) => prev + 1);
                 }
