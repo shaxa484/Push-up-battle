@@ -32,6 +32,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
   const [playerAReps, setPlayerAReps] = useState<number>(0);
   const [playerBReps, setPlayerBReps] = useState<number>(0);
   const [badForm, setBadForm] = useState<boolean>(false);
+  const [debugInfo, setDebugInfo] = useState<string>("Waiting for AI...");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -180,7 +181,10 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               const down_threshold = baseline_y_distance * 0.50;
               const up_threshold = baseline_y_distance * 0.85;
               const anti_cheat_buffer = baseline_y_distance * 0.15;
-
+              
+              // DEBUG LOG: Update the UI with what the AI sees
+              setDebugInfo(`Dist: ${current_y_distance.toFixed(2)} | Down: ${down_threshold.toFixed(2)} | Up: ${up_threshold.toFixed(2)} | State: ${isDownRef.current}`);
+              
               // GOING DOWN
               if (current_y_distance < down_threshold && !isDownRef.current) {
                 console.log(">>> STATE: DOWN");

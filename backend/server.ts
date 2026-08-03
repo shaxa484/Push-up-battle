@@ -247,7 +247,10 @@ function endMatch(matchId: string) {
     p2EloChange = elo.winner; p1EloChange = elo.loser;
     user2.elo += p2EloChange; user1.elo += p1EloChange;
   }
-
+  else {
+    winner = "draw";
+  }
+  
   io.to(p1).emit("match_end", { myReps: p1Reps, oppReps: p2Reps, eloChange: p1EloChange, winner });
   io.to(p2).emit("match_end", { myReps: p2Reps, oppReps: p1Reps, eloChange: p2EloChange, winner });
   

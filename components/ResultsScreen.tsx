@@ -19,8 +19,11 @@ interface ResultsScreenProps {
 export default function ResultsScreen({ results, user, onFindNewMatch, onDashboard }: ResultsScreenProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">
-      <div className={`text-6xl md:text-8xl font-display font-extrabold mb-8 tracking-tight ${user.name === results.winner ? 'text-green-light' : 'text-red-400'}`}>
-        {user.name === results.winner ? "VICTORY" : "DEFEAT"}
+      <div className={`text-6xl md:text-8xl font-display font-extrabold mb-8 tracking-tight ${
+        results.winner === "draw" ? 'text-slate-300' : 
+        (user.name === results.winner ? 'text-green-light' : 'text-red-400')
+      }`}>
+        {results.winner === "draw" ? "DRAW" : (user.name === results.winner ? "VICTORY" : "DEFEAT")}
       </div>
 
       <div className="bg-surface border border-slate-800 rounded-xl p-8 w-full max-w-md mb-8">
