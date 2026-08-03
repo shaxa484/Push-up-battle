@@ -53,7 +53,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
   const handleSendChallenge = (targetUsername: string) => {
     socket.emit("challenge_user", { targetUsername, duration });
     setIsSearching(true);
-    alert(`Challenge sent to ${targetUsername}! Waiting for response...`);
   };
 
   const handleAcceptChallenge = (challenge: Challenge) => {

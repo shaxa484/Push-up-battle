@@ -233,6 +233,10 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       setPhase("countdown");
     });
 
+    socket.on("start_match", () => {
+      setPhase("playing");
+    });
+
     return () => {
       socket.off("opponent_rep_update", handleOpponentRep);
       socket.off("start_countdown");
@@ -247,6 +251,15 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     onExit();
   };
 
+  useEffect(() => {
+    if (phase === "countdown") {
+      if (countdown > 0) {
+        const timer = setTimeout(() => setCountdown((c: number) => c - 1), 1000);
+        return () => clearTimeout(timer);
+      }
+      // It stops at 0 ("GO!") and waits for the server to emit "start_match"
+    }
+  }, [countdown, phase]);
 
   useEffect(() => {
     if (phase === "playing" && timeLeft > 0) {
