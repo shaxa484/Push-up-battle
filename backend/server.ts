@@ -194,8 +194,8 @@ function endMatch(matchId: string) {
       const myReps = match.scores[winnerId] || 0;
       io.to(winnerId).emit("match_end", {
         myReps: myReps,
-        oppReps: 0, // Opponent gets 0 because they left
-        eloChange: 10, // Flat ELO gain for opponent leaving
+        oppReps: 0,
+        eloChange: 0, 
         winner: winner.username
       });
     }
