@@ -24,6 +24,7 @@ interface Match {
   duration: number;
   scores: Record<string, number>;
   startTime: number;
+  readyPlayers: string[];
 }
 
 let users: Record<string, User> = {};
@@ -46,7 +47,8 @@ const startMatchLogic = (p1: User, p2: User, duration: number) => {
     players: [p1.id, p2.id],
     duration,
     scores: { [p1.id]: 0, [p2.id]: 0 },
-    startTime: Date.now() + 4000
+    startTime: 0,
+    readyPlayers:[]
   };
 
   activeMatches[matchId] = match;
@@ -151,6 +153,30 @@ io.on("connection", (socket: Socket) => {
         match.scores[leaverId] = 0;
         match.scores[winnerId] = Math.max(1, match.scores[winnerId]);
         endMatch(matchId); // End the match immediately
+      }
+    }
+  });
+
+  // Sync: Wait for both players to have their cameras ready
+  socket.on("player_ready", (matchId: string) => {
+    const match = activeMatches[matchId];
+    if (match && !match.readyPlayers.includes(socket.id)) {
+      match.readyPlayers.push(socket.id);
+      
+      // If both players are ready, start the countdown!
+      if (match.readyPlayers.length === 2) {
+        io.to(match.players[0]).emit("start_countdown");
+        io.to(match.players[1]).emit("start_countdown");
+        
+        // Start the match timer
+        setTimeout(() => {
+          if (activeMatches[matchId]) {
+            io.to(match.players[0]).emit("start_match");
+            io.to(match.players[1]).emit("start_match");
+          }
+        }, 4000); // 4 seconds for 3-2-1 countdown
+
+        setTimeout(() => endMatch(matchId), 4000 + (match.duration * 1000));
       }
     }
   });

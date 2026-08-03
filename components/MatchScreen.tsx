@@ -25,7 +25,7 @@ interface MatchScreenProps {
 }
 
 export default function MatchScreen({ user, duration, matchData, onMatchEnd, onExit }: MatchScreenProps) {
-  const [phase, setPhase] = useState<"loading" | "calibrating" | "countdown" | "playing" | "ended">("loading");
+  const [phase, setPhase] = useState<"loading" | "waiting"| "calibrating" | "countdown" | "playing" | "ended">("loading");
   const [countdown, setCountdown] = useState<number>(3);
   const [timeLeft, setTimeLeft] = useState<number>(duration);
   
@@ -71,6 +71,10 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
           videoRef.current.onloadeddata = () => {
             videoRef.current?.play();
             setPhase("calibrating");
+
+            if (matchData?.matchId) {
+                socket.emit("player_ready", matchData.matchId);
+              }
           };
         }
       } catch (err) {
@@ -98,7 +102,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
   // 2. Calibration Timer
   useEffect(() => {
     if (phase === "calibrating") {
-      const timer = setTimeout(() => setPhase("countdown"), 2000);
+      const timer = setTimeout(() => setPhase("waiting"), 2000);
       return () => clearTimeout(timer);
     }
   }, [phase]);
@@ -221,19 +225,19 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
 
   // 4. REAL-TIME MULTIPLAYER LOGIC
   useEffect(() => {
-    if (phase !== "playing") return;
-
-    // Listen for opponent's reps
-    const handleOpponentRep = (reps: number) => {
-      setPlayerBReps(reps);
-    };
-
+    const handleOpponentRep = (reps: number) => setPlayerBReps(reps);
     socket.on("opponent_rep_update", handleOpponentRep);
+
+    // Listen for server synced countdown
+    socket.on("start_countdown", () => {
+      setPhase("countdown");
+    });
 
     return () => {
       socket.off("opponent_rep_update", handleOpponentRep);
+      socket.off("start_countdown");
     };
-  }, [phase]);
+  }, []);
 
   // Handle clicking EXIT button
   const handleExit = () => {
@@ -243,17 +247,6 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     onExit();
   };
 
-  // 5. Countdown & Timer
-  useEffect(() => {
-    if (phase === "countdown") {
-      if (countdown > 0) {
-        const timer = setTimeout(() => setCountdown((c: number) => c - 1), 1000);
-        return () => clearTimeout(timer);
-      } else {
-        setPhase("playing");
-      }
-    }
-  }, [countdown, phase]);
 
   useEffect(() => {
     if (phase === "playing" && timeLeft > 0) {
@@ -387,6 +380,15 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               CALCULATING RESULTS...
             </div>
             )}
+
+            {phase === "waiting" && (
+            <div className="text-center">
+              <h2 className="text-2xl text-blue-light font-bold mb-4 uppercase tracking-widest animate-pulse">
+                WAITING FOR OPPONENT...
+              </h2>
+              <p className="text-slate-300 text-lg">Opponent is enabling their camera</p>
+            </div>
+          )}
         </div>
       )}
     </div>
