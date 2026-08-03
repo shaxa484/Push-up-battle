@@ -62,7 +62,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       landmarkerRef.current = landmarker;
       
       if (navigator.mediaDevices.getUserMedia) {
-        
+        try{
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
         streamRef.current = stream; 
         
@@ -73,7 +73,12 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
             setPhase("calibrating");
           };
         }
+      } catch (err) {
+        console.error("Camera access denied or failed:", err);
+        alert("Camera access is required to play. Please allow camera permissions and try again.");
+        onExit();
       }
+    }
     }
     setupLandmarker();
     return () => {

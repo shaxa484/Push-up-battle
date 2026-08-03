@@ -184,29 +184,49 @@ function endMatch(matchId: string) {
   const user1 = users[p1];
   const user2 = users[p2];
 
-  if (user1 && user2) {
-    user1.inMatch = false;
-    user2.inMatch = false;
 
-    let p1EloChange = 0, p2EloChange = 0;
-    let winner = "";
-
-    if (p1Reps > p2Reps) {
-      winner = user1.username;
-      const elo = calculateElo(user1.elo, user2.elo);
-      p1EloChange = elo.winner; p2EloChange = elo.loser;
-      user1.elo += p1EloChange; user2.elo += p2EloChange;
-    } else if (p2Reps > p1Reps) {
-      winner = user2.username;
-      const elo = calculateElo(user2.elo, user1.elo);
-      p2EloChange = elo.winner; p1EloChange = elo.loser;
-      user2.elo += p2EloChange; user1.elo += p1EloChange;
+  if (!user1 || !user2) {
+    const winner = user1 || user2;
+    const winnerId = winner ? winner.id : null;
+    
+    if (winner && winnerId) {
+      winner.inMatch = false;
+      const myReps = match.scores[winnerId] || 0;
+      io.to(winnerId).emit("match_end", {
+        myReps: myReps,
+        oppReps: 0, // Opponent gets 0 because they left
+        eloChange: 10, // Flat ELO gain for opponent leaving
+        winner: winner.username
+      });
     }
-
-    io.to(p1).emit("match_end", { myReps: p1Reps, oppReps: p2Reps, eloChange: p1EloChange, winner });
-    io.to(p2).emit("match_end", { myReps: p2Reps, oppReps: p1Reps, eloChange: p2EloChange, winner });
     delete activeMatches[matchId];
+    return;
   }
+
+  // Normal match end logic (both players present)
+  user1.inMatch = false;
+  user2.inMatch = false;
+
+  let p1EloChange = 0, p2EloChange = 0;
+  let winner = "";
+
+  if (p1Reps > p2Reps) {
+    winner = user1.username;
+    const elo = calculateElo(user1.elo, user2.elo);
+    p1EloChange = elo.winner; p2EloChange = elo.loser;
+    user1.elo += p1EloChange; user2.elo += p2EloChange;
+  } else if (p2Reps > p1Reps) {
+    winner = user2.username;
+    const elo = calculateElo(user2.elo, user1.elo);
+    p2EloChange = elo.winner; p1EloChange = elo.loser;
+    user2.elo += p2EloChange; user1.elo += p1EloChange;
+  }
+
+  io.to(p1).emit("match_end", { myReps: p1Reps, oppReps: p2Reps, eloChange: p1EloChange, winner });
+  io.to(p2).emit("match_end", { myReps: p2Reps, oppReps: p1Reps, eloChange: p2EloChange, winner });
+  
+  delete activeMatches[matchId];
+
 }
 
 const PORT = 3001;
