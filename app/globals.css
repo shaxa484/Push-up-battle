@@ -33,3 +33,14 @@ html, body {
   background: #1E40AF;
   border-radius: 4px;
 }
+
+@keyframes slide-in-right {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

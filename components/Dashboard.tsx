@@ -5,7 +5,7 @@ import { socket } from "@/lib/socket";
 
 interface User { name: string; elo: number; }
 interface OnlineUser { username: string; elo: number; }
-interface Challenge { fromUsername: string; fromElo: number; duration: number; }
+
 
 export default function Dashboard({ user, onFindMatch }: { user: User, onFindMatch: (duration: number) => void }) {
   const [duration, setDuration] = useState(60);
@@ -14,7 +14,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
   // Search & Notification State
   const [searchQuery, setSearchQuery] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
 
   useEffect(() => {
     // Ask server for the list immediately when Dashboard mounts
@@ -24,9 +23,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
       setOnlineUsers(users);
     });
 
-    socket.on("challenge_received", (data: Challenge) => {
-      setChallenges(prev => [...prev, data]);
-    });
 
     socket.on("challenge_declined", (data: { by: string }) => {
       alert(`${data.by} declined your challenge.`);
@@ -55,15 +51,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
     setIsSearching(true);
   };
 
-  const handleAcceptChallenge = (challenge: Challenge) => {
-    socket.emit("respond_to_challenge", { fromUsername: challenge.fromUsername, accepted: true, duration: challenge.duration });
-    setChallenges(prev => prev.filter(c => c.fromUsername !== challenge.fromUsername));
-  };
-
-  const handleDeclineChallenge = (challenge: Challenge) => {
-    socket.emit("respond_to_challenge", { fromUsername: challenge.fromUsername, accepted: false, duration: challenge.duration });
-    setChallenges(prev => prev.filter(c => c.fromUsername !== challenge.fromUsername));
-  };
 
   // Filter users based on search query
   const filteredUsers = onlineUsers.filter(u => 
@@ -80,36 +67,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
         </h1>
         <div className="flex items-center gap-6">
           <span className="text-slate-300 font-medium hidden sm:block">{user.name}</span>
-          
-          {/* Notification Bell */}
-          <div className="relative group">
-            <button className="relative p-2 text-slate-300 hover:text-white">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              {challenges.length > 0 && (
-                <span className="absolute top-0 right-0 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-bold">
-                  {challenges.length}
-                </span>
-              )}
-            </button>
-            
-            {/* Notification Dropdown */}
-            {challenges.length > 0 && (
-              <div className="absolute right-0 mt-2 w-80 bg-surface border border-slate-700 rounded-lg shadow-xl z-50">
-                <div className="p-3 border-b border-slate-700 font-bold text-white">Pending Challenges</div>
-                {challenges.map((c, i) => (
-                  <div key={i} className="p-4 border-b border-slate-800 flex flex-col gap-2">
-                    <div className="text-white font-medium">{c.fromUsername} <span className="text-slate-500 text-sm">({c.fromElo} ELO)</span></div>
-                    <div className="text-xs text-slate-400">Duration: {c.duration}s</div>
-                    <div className="flex gap-2 mt-1">
-                      <button onClick={() => handleAcceptChallenge(c)} className="flex-1 bg-green-primary hover:bg-green-light text-white text-sm font-bold py-1 rounded">Accept</button>
-                      <button onClick={() => handleDeclineChallenge(c)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold py-1 rounded">Decline</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           <div className="flex items-center gap-2 bg-surface px-4 py-2 rounded-lg border border-slate-700">
             <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">ELO</span>
             <span className="text-xl font-display font-bold text-green-light">{user.elo}</span>

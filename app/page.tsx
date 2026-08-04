@@ -5,6 +5,7 @@ import Dashboard from "@/components/Dashboard";
 import MatchScreen, { MatchData } from "@/components/MatchScreen";
 import ResultsScreen, { ResultsData } from "@/components/ResultsScreen";
 import UsernameScreen from "@/components/UsernameScreen";
+import GlobalNotifications from "@/components/GlobalNotifications";
 import { socket } from "@/lib/socket";
 
 export default function Home() {
@@ -56,6 +57,10 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
+
+      {/* Render globally so it shows on Results, Dashboard, etc */}
+      <GlobalNotifications /> 
+      
       {screen === "username" && <UsernameScreen onRegister={handleRegister} />}
       {screen === "dashboard" && user && <Dashboard user={user} onFindMatch={handleFindMatch} />}
       {screen === "match" && matchData && user && (
