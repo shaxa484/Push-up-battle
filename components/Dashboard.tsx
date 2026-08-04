@@ -1,4 +1,3 @@
-// src/components/Dashboard.tsx
 "use client";
 import { useState, useEffect } from "react";
 import { socket } from "@/lib/socket";
@@ -6,33 +5,33 @@ import { socket } from "@/lib/socket";
 interface User { name: string; elo: number; }
 interface OnlineUser { username: string; elo: number; }
 
-
 export default function Dashboard({ user, onFindMatch }: { user: User, onFindMatch: (duration: number) => void }) {
   const [duration, setDuration] = useState(60);
   const [isSearching, setIsSearching] = useState(false);
   
-  // Search & Notification State
   const [searchQuery, setSearchQuery] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
 
   useEffect(() => {
-    // Ask server for the list immediately when Dashboard mounts
     socket.emit("get_online_users");
 
     socket.on("online_users", (users: OnlineUser[]) => {
       setOnlineUsers(users);
     });
 
-
     socket.on("challenge_declined", (data: { by: string }) => {
       alert(`${data.by} declined your challenge.`);
       setIsSearching(false);
     });
 
+    socket.on("match_found", () => {
+      setIsSearching(false);
+    });
+
     return () => {
       socket.off("online_users");
-      socket.off("challenge_received");
       socket.off("challenge_declined");
+      socket.off("match_found");
     };
   }, []);
 
@@ -51,8 +50,6 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
     setIsSearching(true);
   };
 
-
-  // Filter users based on search query
   const filteredUsers = onlineUsers.filter(u => 
     u.username.toLowerCase().includes(searchQuery.toLowerCase()) &&
     u.username !== user.name
@@ -63,7 +60,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
       {/* Navbar */}
       <nav className="flex justify-between items-center mb-12 pb-4 border-b border-slate-800">
         <h1 className="text-2xl font-display font-extrabold tracking-tight text-white">
-          PUSH<span className="text-green-primary">UP</span> BATTLE
+          PUSH<span className="text-green-primary">UP</span> ARENA
         </h1>
         <div className="flex items-center gap-6">
           <span className="text-slate-300 font-medium hidden sm:block">{user.name}</span>
@@ -106,7 +103,7 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
               onClick={isSearching ? handleCancelSearch : handleFindMatch}
               className={`w-full font-display font-extrabold text-xl py-4 rounded-lg tracking-wide shadow-lg transition-all duration-200 cursor-pointer ${
                 isSearching 
-                  ? "bg-slate-700 text-slate-400 cursor-not-allowed animate-pulse" 
+                  ? "bg-red-600 hover:bg-red-500 text-white" 
                   : "bg-blue-primary hover:bg-blue-light text-white shadow-blue-primary/30"
               }`}
             >
