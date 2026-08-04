@@ -114,29 +114,50 @@ io.on("connection", (socket: Socket) => {
   // 3. Direct Challenge System
   socket.on("challenge_user", (data: { targetUsername: string, duration: number }) => {
     const challenger = users[socket.id];
-    const target = Object.values(users).find(u => u.username === data.targetUsername && !u.inMatch);
+    const target = Object.values(users).find(u => u.username === data.targetUsername);
     
-    if (challenger && target) {
-      io.to(target.id).emit("challenge_received", {
+    if (!challenger) return;
+
+    if (!target) {
+      socket.emit("challenge_failed", { message: "User is offline." });
+      return;
+    }
+
+    if (target.inMatch) {
+      socket.emit("challenge_failed", { message: `${target.username} is already in a match.` });
+      return;
+    }
+
+    if (challenger.inMatch) {
+      socket.emit("challenge_failed", { message: "You are already in a match." });
+      return;
+    }
+
+    io.to(target.id).emit("challenge_received", {
         fromUsername: challenger.username,
         fromElo: challenger.elo,
         duration: data.duration
-      });
     }
+    )
   });
 
   socket.on("respond_to_challenge", (data: { fromUsername: string, accepted: boolean, duration: number }) => {
     const target = users[socket.id];
     const challenger = Object.values(users).find(u => u.username === data.fromUsername);
     
-    if (target && challenger && !challenger.inMatch && !target.inMatch) {
-      if (data.accepted) {
-        startMatchLogic(challenger, target, data.duration);
-      } else {
-        io.to(challenger.id).emit("challenge_declined", { by: target.username });
+    if (!target || !challenger) return;
+
+    if (data.accepted) {
+      // Double check they didn't get into a match while waiting
+      if (challenger.inMatch || target.inMatch) {
+        io.to(target.id).emit("challenge_failed", { message: "Match failed to start. Someone is already playing." });
+        return;
       }
+      startMatchLogic(challenger, target, data.duration);
+    } else {
+      io.to(challenger.id).emit("challenge_declined", { by: target.username });
     }
-  });
+    });
   socket.on("cancel_matchmaking", () => {
     matchQueue = matchQueue.filter(id => id !== socket.id);
   });

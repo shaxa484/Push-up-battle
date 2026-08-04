@@ -16,10 +16,17 @@ export default function GlobalNotifications() {
       setChallenge(data);
     };
 
+    const handleFailed = (data: { message: string }) => {
+      alert(data.message);
+      setChallenge(null);
+    };
+
     socket.on("challenge_received", handleChallenge);
+    socket.on("challenge_failed", handleFailed);
 
     return () => {
       socket.off("challenge_received", handleChallenge);
+      socket.off("challenge_failed", handleFailed);
     };
   }, []);
 
