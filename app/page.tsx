@@ -35,6 +35,12 @@ export default function Home() {
       }
     });
 
+    socket.on("match_aborted", () => {
+      alert("Opponent left the match before it started.");
+      setMatchData(null);
+      setScreen("dashboard");
+    });
+
     return () => {
       socket.off("registered");
       socket.off("match_found");
@@ -60,7 +66,7 @@ export default function Home() {
 
       {/* Render globally so it shows on Results, Dashboard, etc */}
       <GlobalNotifications /> 
-      
+
       {screen === "username" && <UsernameScreen onRegister={handleRegister} />}
       {screen === "dashboard" && user && <Dashboard user={user} onFindMatch={handleFindMatch} />}
       {screen === "match" && matchData && user && (

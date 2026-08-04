@@ -249,7 +249,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
 
   // Handle clicking EXIT button
   const handleExit = () => {
-    if (matchData?.matchId && phase === "playing") {
+    if (matchData?.matchId) {
       socket.emit("leave_match", matchData.matchId);
     }
     onExit();
@@ -335,7 +335,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       <div className="absolute top-20 left-4 z-40 bg-black/70 text-green-light font-mono text-xs px-3 py-2 rounded-lg border border-slate-700 pointer-events-none">
         {debugInfo}
       </div>
-      
+
       {/* Bad Form Warning */}
       {badForm && (
         <div className="absolute top-48 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white font-bold px-6 py-3 rounded-lg shadow-lg animate-pulse text-lg">

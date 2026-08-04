@@ -165,19 +165,43 @@ io.on("connection", (socket: Socket) => {
   // Leave Match Early (Quit)
   socket.on("leave_match", (matchId: string) => {
     const match = activeMatches[matchId];
-    if (match) {
-      const leaverId = socket.id;
-      const winnerId = match.players.find(id => id !== leaverId);
-      
-      if (winnerId) {
-        // Force the leaver to have 0 reps, and give the winner 1 rep so they win
+    if (!match) return;
+
+    const leaverId = socket.id;
+    const winnerId = match.players.find(id => id !== leaverId);
+
+    // 1. Reset leaver's state
+    if (users[leaverId]) {
+      users[leaverId].inMatch = false;
+    }
+
+    // 2. If there is a winner, reset their state and handle the match end
+    if (winnerId && users[winnerId]) {
+      users[winnerId].inMatch = false;
+
+      // If the match had already started, award the win to the other player
+      if (match.readyPlayers.length === 2) {
         match.scores[leaverId] = 0;
-        match.scores[winnerId] = Math.max(1, match.scores[winnerId]);
-        endMatch(matchId); // End the match immediately
+        const currentWinnerReps = match.scores[winnerId] || 0;
+        match.scores[winnerId] = Math.max(1, currentWinnerReps);
+        
+        const winner = users[winnerId];
+        io.to(winnerId).emit("match_end", {
+          myReps: match.scores[winnerId],
+          oppReps: 0,
+          eloChange: 10,
+          winner: winner.username
+        });
+      } else {
+        // If the match hadn't started yet, just tell the other player to go home
+        io.to(winnerId).emit("match_aborted");
       }
     }
-  });
 
+    // 3. Delete the match
+    delete activeMatches[matchId];
+  });
+  
   // Sync: Wait for both players to have their cameras ready
   socket.on("player_ready", (matchId: string) => {
     const match = activeMatches[matchId];
