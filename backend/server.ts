@@ -55,6 +55,7 @@ const startMatchLogic = (p1: User, p2: User, duration: number) => {
   p1.inMatch = true;
   p2.inMatch = true;
 
+  console.log(`[Server] Emitting match_found to ${p1.username} and ${p2.username}`);
   io.to(p1.id).emit("match_found", {
     matchId, opponentName: p2.username, opponentElo: p2.elo, duration, startTime: match.startTime
   });
@@ -142,19 +143,26 @@ io.on("connection", (socket: Socket) => {
   });
 
   socket.on("respond_to_challenge", (data: { fromUsername: string, accepted: boolean, duration: number }) => {
+    console.log(`[Server] respond_to_challenge received from ${socket.id}`);
     const target = users[socket.id];
     const challenger = Object.values(users).find(u => u.username === data.fromUsername);
     
-    if (!target || !challenger) return;
+    if (!target || !challenger){
+        console.log(`[Server] Either target or challenger not found.`);
+        return;
+    }
 
     if (data.accepted) {
       // Double check they didn't get into a match while waiting
       if (challenger.inMatch || target.inMatch) {
+        console.log(`[Server] Failed: someone is already in match.`);
         io.to(target.id).emit("challenge_failed", { message: "Match failed to start. Someone is already playing." });
         return;
       }
+      console.log(`[Server] Starting match logic...`);
       startMatchLogic(challenger, target, data.duration);
     } else {
+      console.log(`[Server] Challenge declined by ${target.username}`);
       io.to(challenger.id).emit("challenge_declined", { by: target.username });
     }
     });
@@ -201,7 +209,7 @@ io.on("connection", (socket: Socket) => {
     // 3. Delete the match
     delete activeMatches[matchId];
   });
-  
+
   // Sync: Wait for both players to have their cameras ready
   socket.on("player_ready", (matchId: string) => {
     const match = activeMatches[matchId];
