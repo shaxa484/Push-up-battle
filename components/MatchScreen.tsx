@@ -25,7 +25,7 @@ interface MatchScreenProps {
 }
 
 export default function MatchScreen({ user, duration, matchData, onMatchEnd, onExit }: MatchScreenProps) {
-  const [phase, setPhase] = useState<"loading" | "waiting"| "calibrating" | "countdown" | "playing" | "ended">("loading");
+  const [phase, setPhase] = useState<"loading" | "calibrating" | "waiting" | "countdown" | "playing" | "ended">("loading");
   const [countdown, setCountdown] = useState<number>(3);
   const [timeLeft, setTimeLeft] = useState<number>(duration);
   
@@ -39,12 +39,11 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
   const landmarkerRef = useRef<PoseLandmarker | null>(null);
   const rafRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
+  
   const isDownRef = useRef<boolean>(false);
   const baselineYDistanceRef = useRef<number>(0);
   const baselineHipYRef = useRef<number>(0);
   const baselineKneeYRef = useRef<number>(0);
- 
 
   // 1. Initialize MediaPipe
   useEffect(() => {
@@ -63,44 +62,47 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       landmarkerRef.current = landmarker;
       
       if (navigator.mediaDevices.getUserMedia) {
-        try{
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-        streamRef.current = stream; 
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadeddata = () => {
-            videoRef.current?.play();
-            setPhase("calibrating");
-
-            if (matchData?.matchId) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+          streamRef.current = stream; 
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.onloadeddata = () => {
+              videoRef.current?.play();
+              setPhase("calibrating");
+              
+              // Tell the server your camera is on!
+              if (matchData?.matchId) {
                 socket.emit("player_ready", matchData.matchId);
               }
-          };
+            };
+          }
+        } catch (err) {
+          console.error("Camera access denied or failed", err);
+          alert("Camera access is required to play. Please allow camera permissions and try again.");
+          if (matchData?.matchId) {
+            socket.emit("leave_match", matchData.matchId);
+          }
+          onExit();
         }
-      } catch (err) {
-        console.error("Camera access denied or failed:", err);
-        alert("Camera access is required to play. Please allow camera permissions and try again.");
-        onExit();
       }
     }
-    }
     setupLandmarker();
+
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
-
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     };
-  }, []);
+  }, [matchData, onExit]);
 
-  // 2. Calibration Timer
+  // 2. Calibration Timer (Runs for 2 seconds, then waits for server)
   useEffect(() => {
     if (phase === "calibrating") {
       const timer = setTimeout(() => setPhase("waiting"), 2000);
@@ -108,9 +110,57 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     }
   }, [phase]);
 
-  // 3. AI Detection & Anti-Cheat Loop
+  // 3. Real-time Multiplayer Listeners
   useEffect(() => {
-    if (phase !== "calibrating" && phase !== "playing" && phase !== "countdown") return;
+    const handleOpponentRep = (reps: number) => setPlayerBReps(reps);
+    socket.on("opponent_rep_update", handleOpponentRep);
+
+    // Listen for server synced countdown
+    socket.on("start_countdown", () => {
+      setPhase("countdown");
+    });
+
+    // Listen for the server's command to actually start playing!
+    socket.on("start_match", () => {
+      setPhase("playing");
+    });
+
+    return () => {
+      socket.off("opponent_rep_update", handleOpponentRep);
+      socket.off("start_countdown");
+      socket.off("start_match");
+    };
+  }, []);
+
+  // 4. Local Countdown Math (3, 2, 1, GO!)
+  useEffect(() => {
+    if (phase === "countdown") {
+      if (countdown > 0) {
+        const timer = setTimeout(() => setCountdown((c: number) => c - 1), 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [countdown, phase]);
+
+  // 5. Match Timer
+  useEffect(() => {
+    if (phase === "playing" && timeLeft > 0) {
+      const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
+      return () => clearInterval(timer);
+    } else if (timeLeft === 0 && phase === "playing") {
+      setPhase("ended");
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      const failsafe = setTimeout(() => onExit(), 5000);
+      return () => clearTimeout(failsafe);
+    }
+  }, [phase, timeLeft, onExit]);
+
+  // 6. AI Detection & Anti-Cheat Loop
+  useEffect(() => {
+    if (phase !== "calibrating" && phase !== "playing") return;
     
     const detectPose = () => {
       if (!landmarkerRef.current || !videoRef.current || videoRef.current.readyState < 2) {
@@ -132,7 +182,6 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         return;
       }
       
-      // Ensure canvas matches video exactly to prevent stretching/squishing
       if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
       if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
 
@@ -144,31 +193,22 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       if (results.landmarks.length > 0) {
         const lm = results.landmarks[0];
         
-        // 1. Filter out face connections so no lines are drawn on the face
         const bodyConnections = PoseLandmarker.POSE_CONNECTIONS.filter(
           (connection: { start: number; end: number }) => connection.start >= 11 && connection.end >= 11
         );
-
-        // 2. Draw only body skeleton lines
         drawingUtils.drawConnectors(lm, bodyConnections, { color: "#4ADE80", lineWidth: 6 });
-        
-        // 3. Draw only body dots (skip face indices 0-10)
         const bodyLandmarks = lm.slice(11);
         drawingUtils.drawLandmarks(bodyLandmarks, { color: "#22C55E", radius: 5 });
 
-        // Relaxed visibility threshold (0.3 instead of 0.5) to prevent tracking loss
         const vis = (idx: number) => lm[idx] && lm[idx].visibility !== undefined && lm[idx].visibility > 0.3;
         
         if (vis(11) && vis(12) && vis(15) && vis(16)) {
           const avg_shoulder_y = (lm[11].y + lm[12].y) / 2;
           const avg_wrist_y = (lm[15].y + lm[16].y) / 2;
-          const avg_hip_y = (lm[23].y + lm[24].y) / 2;
-          const avg_knee_y = (lm[25].y + lm[26].y) / 2;
+          const avg_hip_y = lm[23] && lm[24] ? (lm[23].y + lm[24].y) / 2 : 0;
+          const avg_knee_y = lm[25] && lm[26] ? (lm[25].y + lm[26].y) / 2 : 0;
 
           const current_y_distance = Math.abs(avg_wrist_y - avg_shoulder_y);
-
-          // DEBUG LOG: This will print constantly so we know the AI sees you
-          console.log(`Current Dist: ${current_y_distance.toFixed(3)}`);
 
           if (phase === "calibrating") {
             baselineYDistanceRef.current = current_y_distance;
@@ -181,34 +221,23 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               const down_threshold = baseline_y_distance * 0.50;
               const up_threshold = baseline_y_distance * 0.85;
               const anti_cheat_buffer = baseline_y_distance * 0.15;
-              
-              // DEBUG LOG: Update the UI with what the AI sees
+
               setDebugInfo(`Dist: ${current_y_distance.toFixed(2)} | Down: ${down_threshold.toFixed(2)} | Up: ${up_threshold.toFixed(2)} | State: ${isDownRef.current}`);
-              
-              // GOING DOWN
+
               if (current_y_distance < down_threshold && !isDownRef.current) {
-                console.log(">>> STATE: DOWN");
                 isDownRef.current = true;
-              } 
-              // COMING UP
-              else if (current_y_distance > up_threshold && isDownRef.current) {
-                console.log(">>> STATE: UP. CHECKING FORM...");
-                
-                // Only run anti-cheat if hips/knees are visible. Otherwise, just count it.
+              } else if (current_y_distance > up_threshold && isDownRef.current) {
                 const isSagging = lm[23] && lm[24] && avg_hip_y > (baselineHipYRef.current + anti_cheat_buffer);
                 const isKneesDropped = lm[25] && lm[26] && avg_knee_y > (baselineKneeYRef.current + anti_cheat_buffer);
 
                 if (isSagging || isKneesDropped) {
-                  console.log(">>> FAILED: Bad form");
                   isDownRef.current = false;
                   setBadForm(true);
                   setTimeout(() => setBadForm(false), 2000);
                 } else {
-                  console.log(">>> SUCCESS: Rep Counted!");
                   isDownRef.current = false;
                   setPlayerAReps((prev: number) => {
                     const newReps = prev + 1;
-                    // Send your new rep count to the server/opponent
                     socket.emit("rep_update", matchData.matchId, newReps);
                     return newReps;
                   });
@@ -225,65 +254,14 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [phase]);
+  }, [phase, matchData]);
 
-  // 4. REAL-TIME MULTIPLAYER LOGIC
-  useEffect(() => {
-    const handleOpponentRep = (reps: number) => setPlayerBReps(reps);
-    socket.on("opponent_rep_update", handleOpponentRep);
-
-    // Listen for server synced countdown
-    socket.on("start_countdown", () => {
-      setPhase("countdown");
-    });
-
-    socket.on("start_match", () => {
-      setPhase("playing");
-    });
-
-    return () => {
-      socket.off("opponent_rep_update", handleOpponentRep);
-      socket.off("start_countdown");
-    };
-  }, []);
-
-  // Handle clicking EXIT button
   const handleExit = () => {
     if (matchData?.matchId) {
       socket.emit("leave_match", matchData.matchId);
     }
     onExit();
   };
-
-  useEffect(() => {
-    if (phase === "countdown") {
-      if (countdown > 0) {
-        const timer = setTimeout(() => setCountdown((c: number) => c - 1), 1000);
-        return () => clearTimeout(timer);
-      }
-      // It stops at 0 ("GO!") and waits for the server to emit "start_match"
-    }
-  }, [countdown, phase]);
-
-  useEffect(() => {
-    if (phase === "playing" && timeLeft > 0) {
-      const timer = setInterval(() => setTimeLeft((t: number) => t - 1), 1000);
-      return () => clearInterval(timer);
-    } else if (timeLeft === 0 && phase === "playing") {
-      // FIX: Stop the match locally and wait for server results
-      setPhase("ended");
-
-      // Turn off the camera immediately since the match is over
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-
-      // Failsafe: If server doesn't send results in 5 seconds, force exit
-      const failsafe = setTimeout(() => onExit(), 5000);
-      return () => clearTimeout(failsafe);
-    }
-  }, [phase, timeLeft, onExit]);
 
   const totalReps = playerAReps + playerBReps;
   const growA = totalReps === 0 ? 1 : playerAReps;
@@ -307,9 +285,8 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         <div className="w-[60px]"></div>
       </div>
 
-      {/* TUG OF WAR BAR (Fixed at top) */}
+      {/* TUG OF WAR BAR */}
       <div className="flex-shrink-0 flex h-32 md:h-40 w-full border-b-4 border-slate-900 shadow-2xl z-20">
-        {/* Opponent Side (Green) */}
         <div 
           className="relative bg-green-primary/30 border-r-4 border-green-primary flex flex-col items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growB, flexBasis: 0 }}
@@ -320,7 +297,6 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
           </div>
         </div>
 
-        {/* User Side (Blue) */}
         <div 
           className="relative bg-blue-primary/30 border-l-4 border-blue-primary flex flex-col items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growA, flexBasis: 0 }}
@@ -332,6 +308,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         </div>
       </div>
 
+      {/* AI DEBUG HUD */}
       <div className="absolute top-20 left-4 z-40 bg-black/70 text-green-light font-mono text-xs px-3 py-2 rounded-lg border border-slate-700 pointer-events-none">
         {debugInfo}
       </div>
@@ -343,21 +320,20 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         </div>
       )}
 
-      {/* FIXED CAMERA CONTAINER (Takes remaining space) */}
+      {/* FIXED CAMERA CONTAINER */}
       <div className="flex-grow relative bg-black flex items-center justify-center overflow-hidden">
         <video 
           ref={videoRef} 
           className="absolute h-full w-full object-cover" 
-          style={{ transform: 'scaleX(-1)' }} // Mirror the camera so it feels natural
+          style={{ transform: 'scaleX(-1)' }} 
           playsInline 
         />
         <canvas 
           ref={canvasRef} 
           className="absolute h-full w-full object-cover" 
-          style={{ transform: 'scaleX(-1)' }} // Mirror the skeleton to match
+          style={{ transform: 'scaleX(-1)' }} 
         />
         
-        {/* Rep Overlay on Camera */}
         <div className="absolute bottom-6 right-6 z-10 bg-background/70 backdrop-blur-sm px-6 py-3 rounded-xl border border-blue-primary text-right pointer-events-none">
           <div className="text-xs uppercase text-slate-400 tracking-widest font-bold">Your Reps</div>
           <div className="text-5xl font-display font-extrabold text-blue-light tabular-nums">
@@ -371,7 +347,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
         <div className="absolute inset-0 bg-background/95 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
           {phase === "loading" && (
             <div className="text-3xl font-display font-bold text-slate-400 animate-pulse">
-              INITIALIZING POSE TRACKER...
+              INITIALIZING AI TRACKER...
             </div>
           )}
           
@@ -384,6 +360,15 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               <div className="mt-6 w-64 h-2 bg-surface rounded-full overflow-hidden mx-auto">
                 <div className="h-full bg-blue-primary w-full origin-left animate-[progress_2s_linear_infinite]" style={{transform: 'scaleX(0)'}}></div>
               </div>
+            </div>
+          )}
+
+          {phase === "waiting" && (
+            <div className="text-center">
+              <h2 className="text-2xl text-blue-light font-bold mb-4 uppercase tracking-widest animate-pulse">
+                WAITING FOR OPPONENT...
+              </h2>
+              <p className="text-slate-300 text-lg">Opponent is enabling their camera</p>
             </div>
           )}
           
@@ -399,15 +384,6 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
           {phase === "ended" && (
             <div className="text-3xl font-display font-bold text-green-light animate-pulse">
               CALCULATING RESULTS...
-            </div>
-            )}
-
-            {phase === "waiting" && (
-            <div className="text-center">
-              <h2 className="text-2xl text-blue-light font-bold mb-4 uppercase tracking-widest animate-pulse">
-                WAITING FOR OPPONENT...
-              </h2>
-              <p className="text-slate-300 text-lg">Opponent is enabling their camera</p>
             </div>
           )}
         </div>
