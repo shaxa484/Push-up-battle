@@ -28,14 +28,9 @@ export default function Dashboard({ user, onFindMatch }: { user: User, onFindMat
       setIsSearching(false);
     });
 
-    socket.on("match_found", () => {
-      setIsSearching(false);
-    });
-
     return () => {
       socket.off("online_users");
       socket.off("challenge_declined");
-      socket.off("match_found");
     };
   }, []);
 

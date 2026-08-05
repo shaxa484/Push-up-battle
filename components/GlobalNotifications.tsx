@@ -32,6 +32,7 @@ export default function GlobalNotifications() {
 
   const handleAccept = () => {
     if (challenge) {
+      console.log("[Client] Accept clicked! Emitting respond_to_challenge for", challenge.fromUsername);  
       socket.emit("respond_to_challenge", { 
         fromUsername: challenge.fromUsername, 
         accepted: true, 
