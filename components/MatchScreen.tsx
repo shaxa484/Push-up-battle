@@ -114,21 +114,27 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
     }
   }, [phase]);
 
-  // 3. Real-time Multiplayer Listeners
+    // 3. Real-time Multiplayer Listeners
   useEffect(() => {
     const handleOpponentRep = (reps: number) => setPlayerBReps(reps);
     socket.on("opponent_rep_update", handleOpponentRep);
 
-    // Listen for server synced countdown
     socket.on("start_countdown", () => {
-      console.log("[Client] Received start_countdown from server. Setting phase to countdown.");
-      setPhase("countdown");
+      console.log("[Client] Received start_countdown.");
+      // Only start countdown if we are already waiting or loading
+      setPhase((prev) => {
+        if (prev === "waiting" || prev === "loading") return "countdown";
+        return prev;
+      });
     });
 
-    // Listen for the server's command to actually start playing!
     socket.on("start_match", () => {
-      console.log("[Client] Received start_match from server. Setting phase to playing.");
-      setPhase("playing");
+      console.log("[Client] Received start_match.");
+      // Only start playing if we are in countdown or waiting
+      setPhase((prev) => {
+        if (prev === "countdown" || prev === "waiting" || prev === "loading") return "playing";
+        return prev;
+      });
     });
 
     return () => {
@@ -198,13 +204,16 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       
       if (results.landmarks.length > 0) {
         const lm = results.landmarks[0];
-        
+
+        const desiredIndices = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+
         const bodyConnections = PoseLandmarker.POSE_CONNECTIONS.filter(
-          (connection: { start: number; end: number }) => connection.start >= 11 && connection.end >= 11
+          (connection: { start: number; end: number }) => 
+            desiredIndices.includes(connection.start) && desiredIndices.includes(connection.end)
         );
         drawingUtils.drawConnectors(lm, bodyConnections, { color: "#4ADE80", lineWidth: 6 });
-        const bodyLandmarks = lm.slice(11);
-        drawingUtils.drawLandmarks(bodyLandmarks, { color: "#22C55E", radius: 5 });
+        const filteredLandmarks = desiredIndices.map(i => lm[i]).filter(Boolean);
+        drawingUtils.drawLandmarks(filteredLandmarks, { color: "#22C55E", radius: 5 });
 
         const vis = (idx: number) => lm[idx] && lm[idx].visibility !== undefined && lm[idx].visibility > 0.3;
         
