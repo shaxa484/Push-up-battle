@@ -72,10 +72,6 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
               videoRef.current?.play();
               setPhase("calibrating");
               
-              // Tell the server your camera is on!
-              if (matchData?.matchId) {
-                socket.emit("player_ready", matchData.matchId);
-              }
             };
           }
         } catch (err) {
@@ -109,6 +105,10 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
       const timer = setTimeout(() => {
         console.log("[Client] Calibration finished. Moving to waiting.");
         setPhase("waiting");
+
+        if (matchData?.matchId) {
+          socket.emit("player_ready", matchData.matchId);
+        }
       }, 2000);
       return () => clearTimeout(timer);
     }
