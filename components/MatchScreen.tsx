@@ -297,7 +297,9 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
           className="relative bg-green-primary/30 border-r-4 border-green-primary flex flex-col items-center justify-center transition-all duration-500 ease-out overflow-hidden"
           style={{ flexGrow: growB, flexBasis: 0 }}
         >
-          <div className="text-green-light text-sm md:text-lg font-bold uppercase tracking-wider">Opponent</div>
+          <div className="text-green-light text-sm md:text-lg font-bold uppercase tracking-wider truncate w-full text-center px-2">
+            {matchData.opponentName.toUpperCase()}
+          </div>
           <div className="text-green-light text-5xl md:text-7xl font-display font-extrabold drop-shadow-lg">
             {playerBReps}
           </div>
