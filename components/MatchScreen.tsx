@@ -105,7 +105,11 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
   // 2. Calibration Timer (Runs for 2 seconds, then waits for server)
   useEffect(() => {
     if (phase === "calibrating") {
-      const timer = setTimeout(() => setPhase("waiting"), 2000);
+      console.log("[Client] Calibrating for 2 seconds...");
+      const timer = setTimeout(() => {
+        console.log("[Client] Calibration finished. Moving to waiting.");
+        setPhase("waiting");
+      }, 2000);
       return () => clearTimeout(timer);
     }
   }, [phase]);
@@ -117,11 +121,13 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
 
     // Listen for server synced countdown
     socket.on("start_countdown", () => {
+      console.log("[Client] Received start_countdown from server. Setting phase to countdown.");
       setPhase("countdown");
     });
 
     // Listen for the server's command to actually start playing!
     socket.on("start_match", () => {
+      console.log("[Client] Received start_match from server. Setting phase to playing.");
       setPhase("playing");
     });
 
