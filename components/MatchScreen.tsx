@@ -375,7 +375,7 @@ export default function MatchScreen({ user, duration, matchData, onMatchEnd, onE
           {phase === "countdown" && (
             <>
               <h2 className="text-2xl text-slate-400 font-bold mb-4 uppercase tracking-widest">Get Ready</h2>
-              <div className="text-9xl font-display font-extrabold text-green-light animate-ping-once">
+              <div key={countdown}className="text-9xl font-display font-extrabold text-green-light animate-ping-once">
                 {countdown === 0 ? "GO!" : countdown}
               </div>
             </>

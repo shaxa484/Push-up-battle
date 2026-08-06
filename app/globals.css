@@ -11,6 +11,10 @@
   
   --font-sans: "Inter", sans-serif;
   --font-display: "Outfit", sans-serif;
+
+  /* Tailwind v4 Custom Animations */
+  --animate-ping-once: ping-once 1s ease-out forwards;
+  --animate-slide-in-right: slide-in-right 0.3s ease-out;
 }
 
 html, body {
@@ -34,6 +38,7 @@ html, body {
   border-radius: 4px;
 }
 
+/* Keyframes */
 @keyframes slide-in-right {
   0% {
     transform: translateX(100%);
@@ -41,6 +46,21 @@ html, body {
   }
   100% {
     transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes ping-once {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
     opacity: 1;
   }
 }
